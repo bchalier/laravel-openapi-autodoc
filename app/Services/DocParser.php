@@ -63,7 +63,7 @@ class DocParser
      * @throws ResponseTypeNotSupported
      * @throws \ReflectionException
      */
-    protected function getDefaultResponse(Route $route): object
+    protected function getDefaultResponse(Route $route): ?object
     {
         $returnType = $this->getReturnType($route);
 

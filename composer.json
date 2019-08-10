@@ -1,0 +1,37 @@
+{
+  "name": "bchalier/laravel-openapi-autodoc",
+  "description": "Automatic documentation of laravel in OpenApi format.",
+  "keywords": [
+    "laravel",
+    "openapi",
+    "open api",
+    "doc",
+    "documentation",
+    "automation",
+    "generator"
+  ],
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Bastien Chalier",
+      "email": "bastien@chalier.io"
+    }
+  ],
+  "require": {
+    "php": "^7.2",
+    "laravel/framework": "5.*",
+    "goldspecdigital/oooas": "^2.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Bchalier\\LaravelOpenapiDoc\\": "."
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Bchalier\\LaravelOpenapiDoc\\App\\Providers\\LoadingServiceProvider"
+      ]
+    }
+  }
+}

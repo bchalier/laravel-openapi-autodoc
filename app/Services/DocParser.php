@@ -109,7 +109,7 @@ class DocParser
      */
     protected function getResourceCollectionArguments(ResourceCollection $resourceCollection): Collection
     {
-        return factory($this->getResourceCollectionModel($resourceCollection), 2)->make();
+        return factory($this->getResourceCollectionModel($resourceCollection), 2)->create();
     }
 
     /**
@@ -163,7 +163,7 @@ class DocParser
      */
     protected function getResourceArguments(JsonResource $resource): Model
     {
-        return factory($this->getResourceModel($resource))->make();
+        return factory($this->getResourceModel($resource))->create();
     }
 
     /**
@@ -176,7 +176,7 @@ class DocParser
         $model = $this->getResponseModel($response);
 
         if ($model) {
-            return factory($model)->make();
+            return factory($model)->create();
         }
 
         return null;

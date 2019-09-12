@@ -19,7 +19,6 @@
   ],
   "require": {
     "php": "^7.2",
-    "laravel/framework": "5.*",
     "goldspecdigital/oooas": "^2.4"
   },
   "autoload": {

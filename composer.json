@@ -19,9 +19,13 @@
   ],
   "require": {
     "php": "^7.2",
-    "goldspecdigital/oooas": "^2.4"
+    "goldspecdigital/oooas": "^2.4",
+    "phpdocumentor/reflection-docblock": "^4.3"
   },
   "autoload": {
+    "files": [
+      "app/helpers.php"
+    ],
     "psr-4": {
       "Bchalier\\LaravelOpenapiDoc\\": "."
     }

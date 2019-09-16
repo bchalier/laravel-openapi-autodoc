@@ -183,7 +183,7 @@ class ValidationExtractor
         // messages out of the translator service for this validation rule.
         $key = "validation.{$lowerRule}";
 
-        if ($key != ($value = $this->translator->trans($key))) {
+        if ($key != ($value = __($key))) {
             return $value;
         }
 

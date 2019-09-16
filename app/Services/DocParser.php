@@ -4,6 +4,7 @@ namespace Bchalier\LaravelOpenapiDoc\App\Services;
 
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
+use Bchalier\LaravelOpenapiDoc\App\Tags\DocForceTypeTag;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest;
@@ -13,10 +14,18 @@ use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\Router;
+use phpDocumentor\Reflection\DocBlockFactory;
 
 class DocParser
 {
     protected $router;
+
+    /** @var \phpDocumentor\Reflection\DocBlockFactory */
+    protected $docBlockFactory;
+
+    protected $customTags = [
+        'autodoc-type' => '\\' . DocForceTypeTag::class,
+    ];
 
     /**
      * DocParser constructor.
@@ -26,6 +35,7 @@ class DocParser
     public function __construct(Router $router)
     {
         $this->router = $router;
+        $this->docBlockFactory = DocBlockFactory::createInstance($this->customTags);
     }
 
     /**
@@ -146,13 +156,19 @@ class DocParser
         $resourceReflection = new \ReflectionClass($resource);
         $constructMethod = $resourceReflection->getMethod('__construct');
 
-        foreach ($constructMethod->getParameters() as $parameter) {
-            if ($parameter->hasType()) {
-                return $parameter->getType()->getName();
-            }
+        if ($type = $this->methodTypeFromPhpdoc($constructMethod) ?? method_type($constructMethod)) {
+            return ltrim($type, '\\');
+        } else {
+            throw new JsonResourceNoType($resource);
         }
+    }
 
-        throw new JsonResourceNoType($resource);
+    protected function methodTypeFromPhpdoc(\ReflectionMethod $method)
+    {
+        $docBlock = $this->docBlockFactory->create($method->getDocComment());
+        $tag = $docBlock->getTagsByName('autodoc-type');
+
+        return empty($tag) ? null : $tag[0]->getType();
     }
 
     /**

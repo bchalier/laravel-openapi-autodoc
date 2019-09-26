@@ -258,7 +258,9 @@ class DocGenerator
      */
     protected function schemaFromResource(JsonResource $resource): ?OASSchema
     {
-        return $this->extractFromArray($resource->toArray(null));
+        $response = $resource->toResponse(null)->getContent();
+
+        return $this->extractFromArray(json_decode($response, true));
     }
 
     /**

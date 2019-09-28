@@ -125,8 +125,14 @@ class DocGenerator
     protected function getOperations(Route $route): array
     {
         $operations = $this->getCachedOperations($route);
-        $summary = $this->getSummary($this->getControllerReflection($route), $route->getActionMethod());
-        $description = $this->getDescription($this->getControllerReflection($route), $route->getActionMethod());
+        $controllerReflection = $this->getControllerReflection($route);
+
+        if (!$controllerReflection->hasMethod($route->getActionMethod())) {
+            return [];
+        }
+
+        $summary = $this->getSummary($controllerReflection, $route->getActionMethod());
+        $description = $this->getDescription($controllerReflection, $route->getActionMethod());
 
         foreach ($route->methods() as $method) {
             $operations[] = OASOperation::$method()
@@ -378,6 +384,8 @@ class DocGenerator
         $schemaList = [];
 
         foreach ($propertiesList as $key => $property) {
+            $property = $property ?? (string)$property;
+
             $type = gettype($property);
 
             /** @var OASSchema $schema */

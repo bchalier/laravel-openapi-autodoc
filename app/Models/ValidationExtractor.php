@@ -115,11 +115,11 @@ class ValidationExtractor
     }
 
     /**
-     * @param $rule
+     * @param $ruleRaw
      */
-    protected function parseRule($rule): void
+    protected function parseRule($ruleRaw): void
     {
-        [$rule, $parameters] = ValidationRuleParser::parse($rule);
+        [$rule, $parameters] = ValidationRuleParser::parse($ruleRaw);
 
         if ($rule == '') {
             return;
@@ -136,6 +136,8 @@ class ValidationExtractor
 
         $method = "parse{$rule}";
         $this->$method($parameters);
+
+        $this->rules[] = $ruleRaw;
     }
 
     /**
@@ -150,6 +152,7 @@ class ValidationExtractor
         }
 
         $rule->parse($this);
+        $this->rules[] = $rule;
     }
 
     /**

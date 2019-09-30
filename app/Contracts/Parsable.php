@@ -13,4 +13,6 @@ interface Parsable
      * @return mixed
      */
     public function parse(ValidationExtractor &$extractor);
+
+    public function __toString();
 }

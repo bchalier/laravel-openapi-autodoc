@@ -22,7 +22,20 @@ trait RulesSetters
     public function setRules(?array $rules): self
     {
         $this->parseRules($rules);
-        $this->rules = (array)$rules;
+
+        return $this;
+    }
+
+    public function addEnum(string $value): self
+    {
+        $this->enum[] = $value;
+
+        return $this;
+    }
+
+    public function setEnum(array $enum): self
+    {
+        $this->enum = $enum;
 
         return $this;
     }
@@ -34,7 +47,6 @@ trait RulesSetters
     public function addRules($rules): self
     {
         $this->parseRules($rules);
-        $this->rules = array_merge($this->rules, (array)$rules);
 
         return $this;
     }

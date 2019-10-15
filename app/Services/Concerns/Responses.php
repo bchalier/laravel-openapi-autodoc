@@ -130,7 +130,7 @@ trait Responses
                 $class = $type->getFqsen()->getName();
 
                 if (!class_exists($class)) {
-                    $class = $classImports[strtolower($class)];
+                    $class = $classImports[strtolower($class)] ?? $class;
                 }
 
                 if (class_exists($class)) {

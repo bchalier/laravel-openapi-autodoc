@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Routing\Route;
@@ -91,6 +92,8 @@ class DocParser
             $responseClass = new $responseClassName($this->getResourceArguments($responseClassInstance));
         } elseif ($responseClassInstance instanceof JsonResponse) {
             $responseClass = new $responseClassName($this->getResponseArguments($responseClassInstance));
+        } elseif ($responseClassInstance instanceof RedirectResponse) {
+            $responseClass = new JsonResponse(null, 302);
         } else {
             throw new ResponseTypeNotSupported($responseClassName);
         }

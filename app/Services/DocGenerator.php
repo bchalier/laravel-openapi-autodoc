@@ -70,10 +70,12 @@ class DocGenerator
      */
     protected function getInfo(): OASInfo
     {
+        $config = config('documentation');
+
         return OASInfo::create()
-            ->title('API Specification') // TODO
-            ->version('v1') // TODO
-            ->description('For using the Example App API'); // TODO
+            ->title($config['title'])
+            ->version($config['version'])
+            ->description($config['description']);
     }
 
     /**
@@ -126,6 +128,7 @@ class DocGenerator
     {
         $operations = $this->getCachedOperations($route);
         $controllerReflection = $this->getControllerReflection($route);
+        $ignoredVerbs = config('documentation.ignoredVerbs');
 
         if (!$controllerReflection->hasMethod($route->getActionMethod())) {
             return [];
@@ -135,6 +138,10 @@ class DocGenerator
         $description = $this->getDescription($controllerReflection, $route->getActionMethod());
 
         foreach ($route->methods() as $method) {
+            if (in_array($method, $ignoredVerbs)) {
+                continue;
+            }
+
             $operations[] = OASOperation::$method()
                 ->requestBody($this->getRequestBody($this->parser->getRequest($route)))
                 ->responses(...$this->getResponses($route, $method !== 'HEAD'))

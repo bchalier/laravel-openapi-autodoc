@@ -13,6 +13,9 @@ class LoadingServiceProvider extends ServiceProvider
     public function boot()
     {
         $this->loadConsole();
+        $this->loadConfig();
+        
+        $this->publishConfig();
     }
 
     /**
@@ -25,5 +28,38 @@ class LoadingServiceProvider extends ServiceProvider
                 DocumentationGenerateCommand::class,
             ]);
         }
+    }
+
+    /**
+     * Load all package's config files.
+     */
+    protected function loadConfig()
+    {
+        /** @var \Symfony\Component\Finder\SplFileInfo $configFile */
+        foreach ($this->app['files']->files($this->getConfigPath()) as $configFile) {
+            $this->mergeConfigFrom(
+                $configFile->getRealPath(), $configFile->getFilenameWithoutExtension()
+            );
+        }
+    }
+
+    /**
+     * Get the config directory path.
+     *
+     * @return string
+     */
+    protected function getConfigPath()
+    {
+        return __DIR__ . '/../../config';
+    }
+
+    /**
+     * Register som config files for future publish.
+     */
+    protected function publishConfig()
+    {
+        $this->publishes([
+            $this->getConfigPath() . '/documentation.php' => config_path('documentation.php')
+        ], 'config');
     }
 }

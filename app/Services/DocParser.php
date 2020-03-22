@@ -256,7 +256,7 @@ class DocParser
     protected function addUuidIfNeeded(&$model)
     {
         if (in_array('Dyrynda\Database\Support\GeneratesUuid', class_uses_recursive(get_class($model)))) {
-            $model->uuid = $model->resolveUuid()->getBytes();
+            $model->uuid = $model->resolveUuid();
         }
     }
 

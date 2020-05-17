@@ -125,7 +125,7 @@ class DocParser
         $collection = factory($this->getResourceCollectionModel($resourceCollection), 2)->make();
 
         foreach ($collection as $item) {
-            $this->addUuidIfNeeded($item);
+            $this->configureModel($item);
         }
 
         return $collection;
@@ -189,7 +189,7 @@ class DocParser
     protected function getResourceArguments(JsonResource $resource): Model
     {
         return tap(factory($this->getResourceModel($resource))->make(), function ($model) {
-            $this->addUuidIfNeeded($model);
+            $this->configureModel($model);
         });
     }
 
@@ -204,7 +204,7 @@ class DocParser
 
         if ($model) {
             return tap(factory($model)->make(), function ($model) {
-                $this->addUuidIfNeeded($model);
+                $this->configureModel($model);
             });
         }
 
@@ -253,12 +253,23 @@ class DocParser
         return null;
     }
 
-    protected function addUuidIfNeeded(&$model)
+    protected function configureModel($model)
+    {
+        $this->addUuidIfNeeded($model);
+        $this->initStateIfNeeded($model);
+    }
+
+    protected function addUuidIfNeeded($model)
     {
         if (in_array('Dyrynda\Database\Support\GeneratesUuid', class_uses_recursive(get_class($model)))) {
             $model->uuid = $model->resolveUuid();
         }
     }
 
-    // TODO class_uses_recursive
+    protected function initStateIfNeeded($model)
+    {
+        if (method_exists($model, 'initState')) {
+            $model->initState();
+        }
+    }
 }

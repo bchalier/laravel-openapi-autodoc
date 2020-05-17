@@ -122,7 +122,7 @@ class DocParser
      */
     protected function getResourceCollectionArguments(ResourceCollection $resourceCollection): Collection
     {
-        $collection = factory($this->getResourceCollectionModel($resourceCollection), 2)->create();
+        $collection = factory($this->getResourceCollectionModel($resourceCollection), 2)->make();
 
         foreach ($collection as $item) {
             $this->addUuidIfNeeded($item);
@@ -188,7 +188,7 @@ class DocParser
      */
     protected function getResourceArguments(JsonResource $resource): Model
     {
-        return tap(factory($this->getResourceModel($resource))->create(), function ($model) {
+        return tap(factory($this->getResourceModel($resource))->make(), function ($model) {
             $this->addUuidIfNeeded($model);
         });
     }
@@ -203,7 +203,7 @@ class DocParser
         $model = $this->getResponseModel($response);
 
         if ($model) {
-            return tap(factory($model)->create(), function ($model) {
+            return tap(factory($model)->make(), function ($model) {
                 $this->addUuidIfNeeded($model);
             });
         }

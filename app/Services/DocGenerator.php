@@ -5,7 +5,6 @@ namespace Bchalier\LaravelOpenapiDoc\App\Services;
 use App\Http\Controllers\Controller;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Doctrine\Common\Annotations\PhpParser;
-use Illuminate\Support\Facades\DB;
 use GoldSpecDigital\ObjectOrientedOAS\Objects\{
     Info as OASInfo,
     Operation as OASOperation,
@@ -59,17 +58,11 @@ class DocGenerator
      */
     public function generate(): OpenApi
     {
-        DB::beginTransaction();
-
-        $doc = OpenApi::create()
+        return OpenApi::create()
             ->openapi(OpenApi::OPENAPI_3_0_2)
             ->info($this->getInfo())
             ->paths(...$this->getPaths())
             ->tags(...array_values($this->tags));
-
-        DB::rollBack();
-
-        return $doc;
     }
 
     /**

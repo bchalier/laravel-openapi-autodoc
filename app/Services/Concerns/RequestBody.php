@@ -27,7 +27,7 @@ trait RequestBody
 
         $properties = $required = [];
 
-        foreach ($request->rules() as $property => $ruleSet) {
+        foreach ($this->getRules($request) as $property => $ruleSet) {
             $property = new ValidationExtractor($property);
             $property->setRules($ruleSet);
             $property->guessTheBlanks();
@@ -47,6 +47,11 @@ trait RequestBody
             ->content(OASMediaType::json()->schema($schema))
             ->required()
             ->description('test');
+    }
+
+    protected function getRules(FormRequest $request): array
+    {
+        return method_exists($request, 'documentationRules') ? $request->documentationRules() : $request->rules();
     }
 
     /**

@@ -142,13 +142,16 @@ class DocGenerator
                 continue;
             }
 
-            $operations[] = OASOperation::$method()
-                ->requestBody($this->getRequestBody($this->parser->getRequest($route)))
-                ->responses(...$this->getResponses($route, $method !== 'HEAD'))
-                ->tags($this->getTag($this->getNameFromController($route->getController())))
-                ->summary($summary)
-                ->description($description)
-                ->operationId($route->getName() . ".$method");
+            $controller = $route->getController();
+            if ($controller instanceof Controller) {
+                $operations[] = OASOperation::$method()
+                    ->requestBody($this->getRequestBody($this->parser->getRequest($route)))
+                    ->responses(...$this->getResponses($route, $method !== 'HEAD'))
+                    ->tags($this->getTag($this->getNameFromController($controller)))
+                    ->summary($summary)
+                    ->description($description)
+                    ->operationId($route->getName() . ".$method");
+            }
         }
 
         return $this->operationsByUri[$route->uri] = $operations;

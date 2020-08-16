@@ -120,7 +120,7 @@ final class DocForceTypeTag extends BaseTag implements StaticMethod
      *
      * @return string
      */
-    public function __toString()
+    public function __toString(): string
     {
         return ($this->type ? $this->type . ' ' : '')
             . ($this->isVariadic() ? '...' : '')

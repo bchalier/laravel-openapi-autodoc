@@ -13,8 +13,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 trait RequestBody
 {
-    /** @var DocParser */
-    protected $parser;
+    protected DocParser $parser;
 
     /**
      * @param FormRequest|null $request

@@ -28,15 +28,11 @@ class DocGenerator
     use Concerns\RequestBody,
         Concerns\Responses;
 
-    /** @var DocParser */
-    protected $parser;
-
-    /** @var \phpDocumentor\Reflection\DocBlockFactory */
-    protected $docBlockFactory;
-
-    protected $operationsByUri;
-    protected $models;
-    protected $tags;
+    protected DocParser $parser;
+    protected DocBlockFactory $docBlockFactory;
+    protected array $operationsByUri;
+    protected array $models;
+    protected array $tags = [];
 
     /**
      * DocGenerator constructor.

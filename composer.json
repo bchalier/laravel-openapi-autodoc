@@ -29,7 +29,7 @@
       "app/helpers.php"
     ],
     "psr-4": {
-      "Bchalier\\LaravelOpenapiDoc\\": "."
+      "Bchalier\\LaravelOpenapiDoc\\App\\": "app"
     }
   },
   "extra": {

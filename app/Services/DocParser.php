@@ -240,8 +240,8 @@ class DocParser
 
         /** @var \ReflectionParameter $routeParameter */
         foreach ($routeParameters as $routeParameter) {
-            if ($routeParameter->getClass()) {
-                $parameter = $routeParameter->getClass()->newInstance();
+            if ($routeParameter->hasType() && !$routeParameter->getType()->isBuiltin()) {
+                $parameter = new ($routeParameter->getType()->getName());
 
                 if ($parameter instanceof FormRequest) {
                     $parameter->headers->set('Accept', 'application/vnd.api+json');

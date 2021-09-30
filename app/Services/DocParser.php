@@ -2,6 +2,7 @@
 
 namespace Bchalier\LaravelOpenapiDoc\App\Services;
 
+use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Bchalier\LaravelOpenapiDoc\App\Tags\DocForceTypeTag;
@@ -83,6 +84,11 @@ class DocParser
         }
 
         $responseClassName = $returnType->getName();
+
+        if (!class_exists($responseClassName)) {
+            return null;
+        }
+
         $responseClassReflection = new \ReflectionClass($responseClassName);
         $responseClassInstance = $responseClassReflection->newInstanceWithoutConstructor();
 
@@ -122,7 +128,11 @@ class DocParser
      */
     protected function getResourceCollectionArguments(ResourceCollection $resourceCollection): Collection
     {
-        $collection = $this->getResourceCollectionModel($resourceCollection)::factory()->count(2)->make();
+        $model = $this->getResourceCollectionModel($resourceCollection);
+
+        $this->ensureFactoryTraitPresence($model);
+
+        $collection = $model::factory()->count(2)->make();
 
         foreach ($collection as $item) {
             $this->configureModel($item);
@@ -174,7 +184,13 @@ class DocParser
 
     protected function methodTypeFromPhpdoc(\ReflectionMethod $method)
     {
-        $docBlock = $this->docBlockFactory->create($method->getDocComment());
+        $docComment = $method->getDocComment();
+
+        if (empty($docComment)) {
+            return null;
+        }
+
+        $docBlock = $this->docBlockFactory->create($docComment);
         $tag = $docBlock->getTagsByName('autodoc-type');
 
         return empty($tag) ? null : $tag[0]->getType();
@@ -188,6 +204,8 @@ class DocParser
      */
     protected function getResourceArguments(JsonResource $resource): Model
     {
+        $this->ensureFactoryTraitPresence($resource);
+
         return tap($this->getResourceModel($resource)::factory()->make(), function ($model) {
             $this->configureModel($model);
         });
@@ -202,6 +220,12 @@ class DocParser
     {
         $model = $this->getResponseModel($response);
 
+        if (empty($model)) {
+            return null;
+        }
+
+        $this->ensureFactoryTraitPresence($model);
+
         if ($model) {
             return tap($model::factory()->make(), function ($model) {
                 $this->configureModel($model);
@@ -209,6 +233,15 @@ class DocParser
         }
 
         return null;
+    }
+
+    protected function ensureFactoryTraitPresence(JsonResource|string $resource): void
+    {
+        $class = is_string($resource) ? $resource : get_class($resource);
+
+        if (!in_array('Bchalier\SystemModules\Core\App\Concerns\HasFactory', class_uses_recursive($resource))) {
+            throw new JsonResourceNoFactory($class);
+        }
     }
 
     /**

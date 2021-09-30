@@ -3,6 +3,8 @@
 namespace Bchalier\LaravelOpenapiDoc\App\Models;
 
 use Bchalier\LaravelOpenapiDoc\App\Contracts\Parsable;
+use Closure;
+use Faker\Generator;
 use Illuminate\Contracts\Validation\Rule as RuleContract;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -12,13 +14,16 @@ use Illuminate\Validation\ValidationRuleParser;
 
 class ValidationExtractor
 {
-    use Concerns\ParseRules,
-        Concerns\RulesGetters,
-        Concerns\RulesSetters,
-        Concerns\GuessBlanks,
-        FormatsMessages;
+    use Concerns\ParseRules;
+    use Concerns\RulesGetters;
+    use Concerns\RulesSetters;
+    use Concerns\GuessBlanks;
+    use FormatsMessages;
 
     private const GUESSABLE = ['example'];
+    private const INTEGRATED_RULES = [ // rules that should not be listed in $rules
+        'required',
+    ];
 
     public const TYPE_STRING = 'string';
     public const TYPE_BOOLEAN = 'boolean';
@@ -30,32 +35,25 @@ class ValidationExtractor
 
     /**
      * The array of custom error messages.
-     *
-     * @var array
      */
-    public $customMessages = [];
+    public array $customMessages = [];
 
     /**
      * The size related validation rules.
-     *
-     * @var array
      */
-    protected $sizeRules = ['Size', 'Between', 'Min', 'Max', 'Gt', 'Lt', 'Gte', 'Lte'];
+    protected array $sizeRules = ['Size', 'Between', 'Min', 'Max', 'Gt', 'Lt', 'Gte', 'Lte'];
 
-    /** @var string */
-    protected $name;
+    protected ?string $name;
 
-    /** @var array */
-    protected $rules = [];
+    protected array $rules = [];
 
-    /** @var \Faker\Generator */
-    protected $faker;
+    protected Generator $faker;
 
-    /** @var Translator */
-    protected $translator;
+    protected Translator $translator;
 
-    /** @var array */
-    protected $messages = [];
+    protected array $messages = [];
+
+    protected array $data = [];
 
     /**
      * ValidationExtractor constructor.
@@ -114,14 +112,20 @@ class ValidationExtractor
         }
     }
 
-    /**
-     * @param $ruleRaw
-     */
-    protected function parseRule($ruleRaw): void
+    protected function parseRule(string|array|RuleContract|Closure $ruleRaw): void
     {
+        if ($ruleRaw instanceof Closure) {
+            return;
+        }
+
         [$rule, $parameters] = ValidationRuleParser::parse($ruleRaw);
 
-        if ($rule == '') {
+        if (empty($rule)) {
+            return;
+        }
+
+        if (is_string($rule) && str_contains($rule, '|')) {
+            $this->parseRule(explode('|', $rule));
             return;
         }
 
@@ -131,13 +135,18 @@ class ValidationExtractor
         }
 
         $this->messages[] = $this->makeReplacements(
-            $this->messageFromRule($rule), $this->getName(), $rule, $parameters
+            $this->messageFromRule($rule),
+            $this->getName(),
+            $rule,
+            $parameters
         );
 
         $method = "parse{$rule}";
         $this->$method($parameters);
 
-        $this->rules[] = $ruleRaw;
+        if (!in_array($ruleRaw, self::INTEGRATED_RULES)) {
+            $this->rules[] = $ruleRaw;
+        }
     }
 
     /**

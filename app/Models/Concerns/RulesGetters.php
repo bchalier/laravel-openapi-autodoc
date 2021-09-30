@@ -13,9 +13,9 @@ trait RulesGetters
     }
 
     /**
-     * @return array|null
+     * @return array
      */
-    public function getRules(): ?array
+    public function getRules(): array
     {
         return $this->rules;
     }
@@ -50,6 +50,14 @@ trait RulesGetters
     public function isRequired(): bool
     {
         return $this->required;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isNullable(): bool
+    {
+        return $this->nullable;
     }
 
     /**

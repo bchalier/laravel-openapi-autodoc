@@ -3,17 +3,19 @@
 namespace Bchalier\LaravelOpenapiDoc\App\Services;
 
 use App\Http\Controllers\Controller;
+use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
+use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Doctrine\Common\Annotations\PhpParser;
 use Illuminate\Support\Facades\DB;
-use GoldSpecDigital\ObjectOrientedOAS\Objects\{
-    Info as OASInfo,
+use Illuminate\Support\Facades\Log;
+use GoldSpecDigital\ObjectOrientedOAS\Objects\{Info as OASInfo,
     Operation as OASOperation,
     Parameter as OASParameter,
     PathItem as OASPathItem,
+    PathItem,
     Schema as OASSchema,
-    Tag as OASTag
-};
+    Tag as OASTag};
 use GoldSpecDigital\ObjectOrientedOAS\OpenApi;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Routing\Route;
@@ -21,13 +23,16 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Modules\Api\App\Exceptions\WrongRelationship;
 use phpDocumentor\Reflection\DocBlock;
 use phpDocumentor\Reflection\DocBlockFactory;
 
+use function _PHPStan_76800bfb5\RingCentral\Psr7\parse_request;
+
 class DocGenerator
 {
-    use Concerns\RequestBody,
-        Concerns\Responses;
+    use Concerns\Request;
+    use Concerns\Responses;
 
     protected DocParser $parser;
     protected DocBlockFactory $docBlockFactory;
@@ -92,12 +97,32 @@ class DocGenerator
     {
         $paths = [];
 
+        /** @var \Illuminate\Routing\Route $route */
         foreach ($this->parser->getRoutes() as $route) {
             if ($route->getActionMethod() === 'Closure') {
                 continue;
             }
 
-            $paths[] = $this->getPath($route);
+            if (!$this->inWhiteList($route)) {
+                continue;
+            }
+
+            try {
+                $paths = $this->addPath($paths, $this->getPath($route));
+            } catch (JsonResourceNoFactory | WrongRelationship | ResponseTypeNotSupported | JsonResourceNoType | \ReflectionException $e) {
+                Log::info($e->getMessage());
+            }
+        }
+
+        return $paths;
+    }
+
+    private function addPath(array $paths, PathItem $path): array
+    {
+        if (isset($paths[$path->route])) {
+            $paths[$path->route] = $paths[$path->route]->operations(...array_merge($paths[$path->route]->operations ?? [], $path->operations ?? []));
+        } else {
+            $paths[$path->route] = $path;
         }
 
         return $paths;
@@ -147,8 +172,11 @@ class DocGenerator
 
             $controller = $route->getController();
             if ($controller instanceof Controller) {
+                $request = $this->parser->getRequest($route);
+
                 $operations[] = OASOperation::$method()
-                    ->requestBody($this->getRequestBody($this->parser->getRequest($route)))
+                    ->requestBody($this->getRequestBody($request))
+                    ->parameters(...$this->getRequestQueryParameters($request))
                     ->responses(...$this->getResponses($route, $method !== 'HEAD'))
                     ->tags($this->getTag($this->getNameFromController($controller)))
                     ->summary($summary)
@@ -397,9 +425,9 @@ class DocGenerator
         $schemaList = [];
 
         foreach ($propertiesList as $key => $property) {
-            $property = $property ?? (string)$property;
+            $property = $property ?? (string) $property;
 
-            $type = gettype($property);
+            $type = $this->extractType($property);
 
             /** @var OASSchema $schema */
             $schema = OASSchema::$type($key);
@@ -416,6 +444,14 @@ class DocGenerator
         }
 
         return $schemaList;
+    }
+
+    protected function extractType($value): string
+    {
+        return match ($type = gettype($value)) {
+            'double' => 'integer',
+            default => $type,
+        };
     }
 
     /**
@@ -440,5 +476,18 @@ class DocGenerator
     {
         return OASSchema::object($key)
             ->properties(...$this->extractPropertiesFromArray($property));
+    }
+
+    protected function inWhiteList(Route $route): bool
+    {
+        $whiteList = config('documentation.uriWhiteList');
+
+        foreach ($whiteList as $rule) {
+            if (fnmatch($rule, $route->uri)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

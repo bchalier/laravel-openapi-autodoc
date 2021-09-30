@@ -116,7 +116,7 @@ trait Responses
      */
     protected function getPhpdocErrorsFromRoute(Route $route): array
     {
-        $tags = $this->getDocBlock($this->getControllerReflection($route), $route->getActionMethod())->getTags();
+        $tags = $this->getDocBlock($this->getControllerReflection($route), $route->getActionMethod())?->getTags() ?? [];
         $classImports = $this->getClassImports($this->getControllerReflection($route));
         $errors = [];
 

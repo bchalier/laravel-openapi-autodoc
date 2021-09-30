@@ -6,4 +6,8 @@ return [
     'description' => 'description',
 
     'ignoredVerbs' => [],
+
+    'uriWhiteList' => [
+        '*',
+    ],
 ];

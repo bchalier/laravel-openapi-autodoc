@@ -22,7 +22,8 @@
     "laravel/framework": "^8.0",
     "goldspecdigital/oooas": "^2.4",
     "phpdocumentor/reflection-docblock": "^5.1",
-    "doctrine/annotations": "^1.8"
+    "doctrine/annotations": "^1.8",
+    "niklongstone/regex-reverse": "^0.4.0"
   },
   "autoload": {
     "files": [

@@ -7,32 +7,18 @@ use InvalidArgumentException;
 
 trait ParseRules
 {
-    /** @var string */
-    protected $type;
-
-    /** @var bool */
-    protected $required = false;
-
-    /** @var int */
-    protected $max;
-
-    /** @var int */
-    protected $min;
-
-    /** @var array */
-    protected $enum;
-
-    /** @var array */
-    protected $validCharacters = [];
-
-    /** @var array */
-    protected $requiredCharacters = [];
-
-    protected $startsWith;
-    protected $endsWith;
-
-    protected $fileExtension;
-    protected $example;
+    protected ?string $type = null;
+    protected bool $required = false;
+    protected bool $nullable = false;
+    protected int $max;
+    protected int $min;
+    protected ?array $enum = null;
+    protected array $validCharacters = [];
+    protected array $requiredCharacters = [];
+    protected string $startsWith;
+    protected string $endsWith;
+    protected array $fileExtension;
+    protected mixed $example;
 
     /**
      * Parse an "accepted".
@@ -241,11 +227,7 @@ trait ParseRules
      */
     public function parseSame($parameters) // TODO
     {
-        $this->requireParameterCount(1, $parameters, 'same');
-
-        $other = Arr::get($this->data, $parameters[0]);
-
-        return $value === $other;
+        return;
     }
 
     /**
@@ -301,8 +283,6 @@ trait ParseRules
     public function parseDifferent($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'different');
-
-        return;
     }
 
     /**
@@ -342,26 +322,7 @@ trait ParseRules
      */
     public function parseDimensions($parameters) // TODO
     {
-        if ($this->isValidFileInstance($value) && $value->getClientMimeType() === 'image/svg+xml') {
-            return true;
-        }
-
-        if (!$this->isValidFileInstance($value) || !$sizeDetails = @getimagesize($value->getRealPath())) {
-            return false;
-        }
-
-        $this->requireParameterCount(1, $parameters, 'dimensions');
-
-        [$width, $height] = $sizeDetails;
-
-        $parameters = $this->parseNamedParameters($parameters);
-
-        if ($this->failsBasicDimensionChecks($parameters, $width, $height) ||
-            $this->failsRatioCheck($parameters, $width, $height)) {
-            return false;
-        }
-
-        return true;
+        return;
     }
 
     /**
@@ -372,13 +333,7 @@ trait ParseRules
      */
     public function parseDistinct($parameters) // TODO
     {
-        $data = Arr::except($this->getDistinctValues($attribute), $attribute);
-
-        if (in_array('ignore_case', $parameters)) {
-            return empty(preg_grep('/^' . preg_quote($value, '/') . '$/iu', $data));
-        }
-
-        return !in_array($value, array_values($data));
+        return;
     }
 
     /**
@@ -412,8 +367,6 @@ trait ParseRules
     public function parseExists($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'exists');
-
-        return;
     }
 
     /**
@@ -732,7 +685,7 @@ trait ParseRules
      */
     public function parseNullable(): void
     {
-        return;
+        $this->nullable = true;
     }
 
     /**
@@ -763,13 +716,7 @@ trait ParseRules
      */
     public function parseRegex($parameters) // TODO
     {
-        if (!is_string($value) && !is_numeric($value)) {
-            return false;
-        }
-
-        $this->requireParameterCount(1, $parameters, 'regex');
-
-        return preg_match($parameters[0], $value) > 0;
+        return;
     }
 
     /**
@@ -791,7 +738,6 @@ trait ParseRules
     public function parseRequiredIf($parameters): void
     {
         $this->required = true;
-        return;
     }
 
     /**
@@ -803,7 +749,6 @@ trait ParseRules
     public function parseRequiredUnless($parameters): void
     {
         $this->required = true;
-        return;
     }
 
     /**
@@ -815,7 +760,6 @@ trait ParseRules
     public function parseRequiredWith($parameters): void
     {
         $this->required = true;
-        return;
     }
 
     /**
@@ -827,7 +771,6 @@ trait ParseRules
     public function parseRequiredWithAll($parameters): void
     {
         $this->required = true;
-        return;
     }
 
     /**
@@ -839,7 +782,6 @@ trait ParseRules
     public function parseRequiredWithout($parameters): void
     {
         $this->required = true;
-        return;
     }
 
     /**
@@ -851,7 +793,6 @@ trait ParseRules
     public function parseRequiredWithoutAll($parameters): void
     {
         $this->required = true;
-        return;
     }
 
     /**
@@ -910,8 +851,6 @@ trait ParseRules
     public function parseUnique($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'unique');
-
-        return;
     }
 
     /**

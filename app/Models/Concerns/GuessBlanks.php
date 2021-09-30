@@ -6,7 +6,7 @@ trait GuessBlanks
 {
     protected function guessExample()
     {
-        $this->example = 'dunno, yet !'; // TODO
+        $this->example = null; // TODO
     }
 
     protected function generateRandomString($regex)

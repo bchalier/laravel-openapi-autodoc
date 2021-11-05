@@ -60,7 +60,7 @@ class DocGenerator
      */
     public function generate(): OpenApi
     {
-        DB::beginTransaction();
+        $this->startTransactions();
 
         $doc = OpenApi::create()
             ->openapi(OpenApi::OPENAPI_3_0_2)
@@ -68,7 +68,7 @@ class DocGenerator
             ->paths(...$this->getPaths())
             ->tags(...array_values($this->tags));
 
-        DB::rollBack();
+        $this->rollback();
 
         return $doc;
     }
@@ -489,5 +489,19 @@ class DocGenerator
         }
 
         return false;
+    }
+
+    private function startTransactions()
+    {
+        foreach (config('documentation.connections_to_transact') as $connection) {
+            DB::connection($connection)->beginTransaction();
+        }
+    }
+
+    private function rollback()
+    {
+        foreach (config('documentation.connections_to_transact') as $connection) {
+            DB::connection($connection)->rollBack();
+        }
     }
 }

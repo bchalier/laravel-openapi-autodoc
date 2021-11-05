@@ -10,4 +10,8 @@ return [
     'uriWhiteList' => [
         '*',
     ],
+
+    'connections_to_transact' => [
+        'mysql',
+    ],
 ];

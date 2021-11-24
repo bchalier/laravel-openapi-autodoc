@@ -6,6 +6,7 @@ use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Bchalier\LaravelOpenapiDoc\App\Tags\DocForceTypeTag;
+use Bchalier\SystemModules\Core\App\Concerns\HasFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest;
@@ -204,7 +205,9 @@ class DocParser
      */
     protected function getResourceArguments(JsonResource $resource): Model
     {
-        $this->ensureFactoryTraitPresence($resource);
+        $model = $this->getResourceModel($resource);
+
+        $this->ensureFactoryTraitPresence($model);
 
         return tap($this->getResourceModel($resource)::factory()->make(), function ($model) {
             $this->configureModel($model);
@@ -235,12 +238,10 @@ class DocParser
         return null;
     }
 
-    protected function ensureFactoryTraitPresence(JsonResource|string $resource): void
+    protected function ensureFactoryTraitPresence(string $resource): void
     {
-        $class = is_string($resource) ? $resource : get_class($resource);
-
-        if (!in_array('Bchalier\SystemModules\Core\App\Concerns\HasFactory', class_uses_recursive($resource))) {
-            throw new JsonResourceNoFactory($class);
+        if (!in_array(HasFactory::class, class_uses_recursive($resource))) {
+            throw new JsonResourceNoFactory($resource);
         }
     }
 
@@ -273,14 +274,25 @@ class DocParser
 
         /** @var \ReflectionParameter $routeParameter */
         foreach ($routeParameters as $routeParameter) {
-            if ($routeParameter->hasType() && !$routeParameter->getType()->isBuiltin()) {
-                $parameter = new ($routeParameter->getType()->getName());
-
-                if ($parameter instanceof FormRequest) {
-                    $parameter->headers->set('Accept', 'application/vnd.api+json');
-                    return $parameter;
-                }
+            if (!$routeParameter->hasType()) {
+                continue;
             }
+
+            if ($routeParameter->getType()->isBuiltin()) {
+                continue;
+            }
+
+            if (!$routeParameter->getType()->getName() instanceof Model) {
+                continue;
+            }
+
+            $parameter = new ($routeParameter->getType()->getName());
+
+            if (!$parameter instanceof FormRequest) {
+                continue;
+            }
+
+            return tap($parameter, fn($p) => $p->headers->set('Accept', 'application/vnd.api+json'));
         }
 
         return null;

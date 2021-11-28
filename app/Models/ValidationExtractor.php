@@ -142,7 +142,10 @@ class ValidationExtractor
         );
 
         $method = "parse{$rule}";
-        $this->$method($parameters);
+
+        if (method_exists($this, $method)) {
+            $this->$method($parameters);
+        }
 
         if (!in_array($ruleRaw, self::INTEGRATED_RULES)) {
             $this->rules[] = $ruleRaw;

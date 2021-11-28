@@ -282,17 +282,11 @@ class DocParser
                 continue;
             }
 
-            if (!$routeParameter->getType()->getName() instanceof Model) {
+            if (!is_subclass_of($routeParameter->getType()->getName(), FormRequest::class)) {
                 continue;
             }
 
-            $parameter = new ($routeParameter->getType()->getName());
-
-            if (!$parameter instanceof FormRequest) {
-                continue;
-            }
-
-            return tap($parameter, fn($p) => $p->headers->set('Accept', 'application/vnd.api+json'));
+            return tap(new ($routeParameter->getType()->getName()), fn($p) => $p->headers->set('Accept', 'application/vnd.api+json'));
         }
 
         return null;

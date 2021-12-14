@@ -392,56 +392,6 @@ trait ParseRules
     }
 
     /**
-     * Parse an attribute is greater than another attribute.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseGt($parameters) // TODO
-    {
-        $this->requireParameterCount(1, $parameters, 'gt');
-
-        $comparedToValue = $this->getValue($parameters[0]);
-
-        $this->shouldBeNumeric($attribute, 'Gt');
-
-        if (is_null($comparedToValue) && (is_numeric($value) && is_numeric($parameters[0]))) {
-            return $this->getSize() > $parameters[0];
-        }
-
-        if (!$this->isSameType($value, $comparedToValue)) {
-            return false;
-        }
-
-        return $this->getSize() > $this->getSize($attribute, $comparedToValue);
-    }
-
-    /**
-     * Parse an attribute is greater than or equal another attribute.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseGte($parameters) // TODO
-    {
-        $this->requireParameterCount(1, $parameters, 'gte');
-
-        $comparedToValue = $this->getValue($parameters[0]);
-
-        $this->shouldBeNumeric($attribute, 'Gte');
-
-        if (is_null($comparedToValue) && (is_numeric($value) && is_numeric($parameters[0]))) {
-            return $this->getSize() >= $parameters[0];
-        }
-
-        if (!$this->isSameType($value, $comparedToValue)) {
-            return false;
-        }
-
-        return $this->getSize() >= $this->getSize($attribute, $comparedToValue);
-    }
-
-    /**
      * Validate the MIME type of a file is an image MIME type.
      *
      * @return void
@@ -461,27 +411,6 @@ trait ParseRules
     public function parseIn($parameters): void
     {
         $this->enum = $parameters;
-    }
-
-    /**
-     * Parse the values of an attribute is in another attribute.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseInArray($parameters) // TODO
-    {
-        $this->requireParameterCount(1, $parameters, 'in_array');
-
-        $explicitPath = ValidationData::getLeadingExplicitAttributePath($parameters[0]);
-
-        $attributeData = ValidationData::extractDataFromPath($explicitPath, $this->data);
-
-        $otherValues = Arr::where(Arr::dot($attributeData), function ($value, $key) use ($parameters) {
-            return Str::is($parameters[0], $key);
-        });
-
-        return in_array($value, $otherValues);
     }
 
     /**
@@ -539,56 +468,6 @@ trait ParseRules
     }
 
     /**
-     * Parse an attribute is less than another attribute.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseLt($parameters) // TODO
-    {
-        $this->requireParameterCount(1, $parameters, 'lt');
-
-        $comparedToValue = $this->getValue($parameters[0]);
-
-        $this->shouldBeNumeric($attribute, 'Lt');
-
-        if (is_null($comparedToValue) && (is_numeric($value) && is_numeric($parameters[0]))) {
-            return $this->getSize() < $parameters[0];
-        }
-
-        if (!$this->isSameType($value, $comparedToValue)) {
-            return false;
-        }
-
-        return $this->getSize() < $this->getSize($attribute, $comparedToValue);
-    }
-
-    /**
-     * Parse an attribute is less than or equal another attribute.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseLte($parameters) // TODO
-    {
-        $this->requireParameterCount(1, $parameters, 'lte');
-
-        $comparedToValue = $this->getValue($parameters[0]);
-
-        $this->shouldBeNumeric($attribute, 'Lte');
-
-        if (is_null($comparedToValue) && (is_numeric($value) && is_numeric($parameters[0]))) {
-            return $this->getSize() <= $parameters[0];
-        }
-
-        if (!$this->isSameType($value, $comparedToValue)) {
-            return false;
-        }
-
-        return $this->getSize() <= $this->getSize($attribute, $comparedToValue);
-    }
-
-    /**
      * Validate the size of an attribute is less than a maximum value.
      *
      * @param array $parameters
@@ -599,46 +478,6 @@ trait ParseRules
         $this->requireParameterCount(1, $parameters, 'max');
 
         $this->max = $parameters[0];
-    }
-
-    /**
-     * Validate the MIME type of a file upload attribute is in a set of MIME types.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseMimetypes($parameters) // TODO
-    {
-        if (!$this->isValidFileInstance($value)) {
-            return false;
-        }
-
-        if ($this->shouldBlockPhpUpload($value, $parameters)) {
-            return false;
-        }
-
-        return $value->getPath() !== '' &&
-            (in_array($value->getMimeType(), $parameters) ||
-                in_array(explode('/', $value->getMimeType())[0] . '/*', $parameters));
-    }
-
-    /**
-     * Validate the guessed extension of a file upload is in a set of file extensions.
-     *
-     * @param array $parameters
-     * @return void
-     */
-    public function parseMimes($parameters) // TODO
-    {
-        if (!$this->isValidFileInstance($value)) {
-            return false;
-        }
-
-        if ($this->shouldBlockPhpUpload($value, $parameters)) {
-            return false;
-        }
-
-        return $value->getPath() !== '' && in_array($value->guessExtension(), $parameters);
     }
 
     /**

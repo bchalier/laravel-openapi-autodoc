@@ -3,6 +3,7 @@
 namespace Bchalier\LaravelOpenapiDoc\App\Services;
 
 use App\Http\Controllers\Controller;
+use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceCollectionNoResource;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
@@ -109,7 +110,7 @@ class DocGenerator
 
             try {
                 $paths = $this->addPath($paths, $this->getPath($route));
-            } catch (JsonResourceNoFactory | WrongRelationship | ResponseTypeNotSupported | JsonResourceNoType | \ReflectionException $e) {
+            } catch (JsonResourceNoFactory | WrongRelationship | ResponseTypeNotSupported | JsonResourceNoType | JsonResourceCollectionNoResource | \ReflectionException $e) {
                 Log::info($e->getMessage());
             }
         }

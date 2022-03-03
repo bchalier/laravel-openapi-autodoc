@@ -2,6 +2,7 @@
 
 namespace Bchalier\LaravelOpenapiDoc\App\Services;
 
+use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceCollectionNoResource;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
@@ -157,6 +158,10 @@ class DocParser
         $collectMethod = $resourceCollectionReflection->getMethod('collects');
         $collectMethod->setAccessible(true);
         $resourceClass = $collectMethod->invoke($resourceCollection);
+
+        if (!class_exists($resourceClass)) {
+            throw new JsonResourceCollectionNoResource($resourceCollection);
+        }
 
         $resource = (new \ReflectionClass($resourceClass))->newInstanceWithoutConstructor();
 

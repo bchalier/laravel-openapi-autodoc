@@ -14,7 +14,7 @@ class JsonResourceNoType extends \Exception
      */
     public function __construct(JsonResource $resource, \Throwable $previous = null)
     {
-        $message = 'The resource input of ' . get_class($resource) . ' need to have a type in order to document it, example: __construct(MyAwesomeModel $resource)';
+        $message = 'The constructor of ' . get_class($resource) . ' need to have a type in order to document it, example: __construct(MyAwesomeModel $resource)';
 
         parent::__construct($message, null, $previous);
     }

@@ -59,7 +59,7 @@ class DocumentationGenerateCommand extends Command
         // Generate a single global OpenAPI document. Tag grouping is handled via x-tagGroups.
         $docJson = (new DocGenerator($this->router))->generate()->toJson();
 
-        if (! directoryExists(config('documentation.destination_dir'))) {
+        if (! is_dir(config('documentation.destination_dir'))) {
             mkdir(config('documentation.destination_dir'), recursive: true);
         }
 

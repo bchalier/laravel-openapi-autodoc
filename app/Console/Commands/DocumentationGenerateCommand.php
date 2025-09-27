@@ -8,11 +8,11 @@ use Bchalier\LaravelOpenapiDoc\App\Services\DocGenerator;
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
+use ReflectionException;
+use function PHPUnit\Framework\directoryExists;
 
 class DocumentationGenerateCommand extends Command
 {
-    const FILE_PATH = 'public/documentation/openapi.json';
-
     /**
      * The router instance.
      *
@@ -32,7 +32,7 @@ class DocumentationGenerateCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Command description';
+    protected $description = 'Generate OpenAPI (v3) JSON documentation from routes, requests and resources';
 
     /**
      * Create a new documentation command instance.
@@ -52,11 +52,17 @@ class DocumentationGenerateCommand extends Command
      *
      * @throws JsonResourceNoType
      * @throws ResponseTypeNotSupported
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     public function handle()
     {
+        // Generate a single global OpenAPI document. Tag grouping is handled via x-tagGroups.
         $docJson = (new DocGenerator($this->router))->generate()->toJson();
-        Storage::put(self::FILE_PATH, $docJson);
+
+        if (! directoryExists(config('documentation.destination_dir'))) {
+            mkdir(config('documentation.destination_dir'), recursive: true);
+        }
+
+        file_put_contents(base_path(config('documentation.destination_dir') . '/openapi.json'), $docJson);
     }
 }

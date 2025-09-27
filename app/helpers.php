@@ -1,6 +1,6 @@
 <?php
 
-if (! function_exists('generate_random_string')) {
+if (! function_exists('method_type')) {
     function method_type(ReflectionMethod $method): ?string
     {
         foreach ($method->getParameters() as $parameter) {

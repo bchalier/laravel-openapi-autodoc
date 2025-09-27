@@ -3,6 +3,8 @@
 namespace Bchalier\LaravelOpenapiDoc\App\Models\Concerns;
 
 use Carbon\Carbon;
+use DateTime;
+use Exception;
 use InvalidArgumentException;
 
 trait ParseRules
@@ -49,15 +51,19 @@ trait ParseRules
      *
      * @param array $parameters
      * @return void
-     * @throws \Exception
      */
     public function parseAfter($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'after');
 
-        $date = new Carbon($parameters[0]);
-
         $this->type = self::TYPE_STRING;
+
+        $date = $this->createDateFromParameter($parameters[0]);
+
+        if ($date === null) {
+            return;
+        }
+
         $this->example = $date->addDay()->__toString();
     }
 
@@ -69,7 +75,7 @@ trait ParseRules
      * @param string $rule
      * @return void
      *
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public function requireParameterCount($count, $parameters, $rule)
     {
@@ -78,20 +84,33 @@ trait ParseRules
         }
     }
 
+    protected function createDateFromParameter(string $parameter): ?Carbon
+    {
+        try {
+            return new Carbon($parameter);
+        } catch (Exception $exception) {
+            return null;
+        }
+    }
+
     /**
      * Validate the date is equal or after a given date.
      *
      * @param array $parameters
      * @return void
-     * @throws \Exception
      */
     public function parseAfterOrEqual($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'after_or_equal');
 
-        $date = new Carbon($parameters[0]);
-
         $this->type = self::TYPE_STRING;
+
+        $date = $this->createDateFromParameter($parameters[0]);
+
+        if ($date === null) {
+            return;
+        }
+
         $this->example = $date->__toString();
     }
 
@@ -155,15 +174,19 @@ trait ParseRules
      *
      * @param array $parameters
      * @return void
-     * @throws \Exception
      */
     public function parseBefore($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'before');
 
-        $date = new Carbon($parameters[0]);
-
         $this->type = self::TYPE_STRING;
+
+        $date = $this->createDateFromParameter($parameters[0]);
+
+        if ($date === null) {
+            return;
+        }
+
         $this->example = $date->subDay()->__toString();
     }
 
@@ -172,15 +195,19 @@ trait ParseRules
      *
      * @param array $parameters
      * @return void
-     * @throws \Exception
      */
     public function parseBeforeOrEqual($parameters): void
     {
         $this->requireParameterCount(1, $parameters, 'before_or_equal');
 
-        $date = new Carbon($parameters[0]);
-
         $this->type = self::TYPE_STRING;
+
+        $date = $this->createDateFromParameter($parameters[0]);
+
+        if ($date === null) {
+            return;
+        }
+
         $this->example = $date->__toString();
     }
 
@@ -245,7 +272,7 @@ trait ParseRules
      *
      * @param array $parameters
      * @return void
-     * @throws \Exception
+     * @throws Exception
      */
     public function parseDateEquals($parameters): void
     {
@@ -271,7 +298,7 @@ trait ParseRules
         $format = $parameters[0];
 
         $this->type = self::TYPE_STRING;
-        $this->example = \DateTime::createFromFormat('!' . $format, $now);
+        $this->example = DateTime::createFromFormat('!' . $format, $now);
     }
 
     /**

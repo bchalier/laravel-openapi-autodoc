@@ -7,7 +7,8 @@ use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Bchalier\LaravelOpenapiDoc\App\Tags\DocForceTypeTag;
-use Bchalier\SystemModules\Core\App\Concerns\HasFactory;
+use Doctrine\Common\Annotations\PhpParser;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest;
@@ -19,6 +20,8 @@ use Illuminate\Routing\Route;
 use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\Router;
 use phpDocumentor\Reflection\DocBlockFactory;
+use phpDocumentor\Reflection\Types\Compound;
+use phpDocumentor\Reflection\Types\Object_;
 
 class DocParser
 {
@@ -80,12 +83,7 @@ class DocParser
     protected function getDefaultResponse(Route $route): ?object
     {
         $returnType = $this->getReturnType($route);
-
-        if (empty($returnType)) {
-            return null;
-        }
-
-        $responseClassName = $returnType->getName();
+        $responseClassName = $returnType?->getName() ?? $this->getReturnClassFromDocblock($route);
 
         if (!class_exists($responseClassName)) {
             return null;
@@ -128,19 +126,10 @@ class DocParser
      * @throws JsonResourceNoType
      * @throws \ReflectionException
      */
-    protected function getResourceCollectionArguments(ResourceCollection $resourceCollection): Collection
+    protected function getResourceCollectionArguments(ResourceCollection $resourceCollection)
     {
-        $model = $this->getResourceCollectionModel($resourceCollection);
-
-        $this->ensureFactoryTraitPresence($model);
-
-        $collection = $model::factory()->count(2)->make();
-
-        foreach ($collection as $item) {
-            $this->configureModel($item);
-        }
-
-        return $collection;
+        // Return empty collection to allow safe instantiation without DB/DTOs
+        return collect();
     }
 
     /**
@@ -181,7 +170,7 @@ class DocParser
         $resourceReflection = new \ReflectionClass($resource);
         $constructMethod = $resourceReflection->getMethod('__construct');
 
-        if ($type = $this->methodTypeFromPhpdoc($constructMethod) ?? method_type($constructMethod)) {
+        if ($type = $this->methodTypeFromPhpdoc($constructMethod) ?? method_type($constructMethod) ?? $this->propertyTypeFromPhpdoc($resourceReflection, 'resource')) {
             return ltrim($type, '\\');
         } else {
             throw new JsonResourceNoType($resource);
@@ -202,21 +191,100 @@ class DocParser
         return empty($tag) ? null : $tag[0]->getType();
     }
 
+    protected function propertyTypeFromPhpdoc(\ReflectionClass $class, string $property): ?string
+    {
+        $doc = $class->getDocComment();
+        if (!$doc) return null;
+
+        $docBlock = $this->docBlockFactory->create($doc);
+        $tags = array_merge($docBlock->getTagsByName('property'), $docBlock->getTagsByName('property-read'));
+
+        $imports = (new PhpParser())->parseClass($class);
+        foreach ($tags as $tag) {
+            /** @var \phpDocumentor\Reflection\DocBlock\Tags\Property $tag */
+            if ($tag->getVariableName() !== $property) continue;
+            $type = $tag->getType();
+            if ($type instanceof Compound) {
+                foreach ($type->getTypes() as $t) {
+                    if ($t instanceof Object_) {
+                        $fqsen = $t->getFqsen();
+                        $name = ltrim((string) $fqsen, '\\');
+                        if (!class_exists($name)) {
+                            $short = ltrim($fqsen?->getName() ?? '', '\\');
+                            $name = $imports[strtolower($short)] ?? $name;
+                        }
+                        if (class_exists($name)) return $name;
+                    }
+                }
+            } elseif ($type instanceof Object_) {
+                $fqsen = $type->getFqsen();
+                $name = ltrim((string) $fqsen, '\\');
+                if (!class_exists($name)) {
+                    $short = ltrim($fqsen?->getName() ?? '', '\\');
+                    $name = $imports[strtolower($short)] ?? $name;
+                }
+                if (class_exists($name)) return $name;
+            }
+        }
+
+        return null;
+    }
+
+    protected function getReturnClassFromDocblock(Route $route): ?string
+    {
+        try {
+            $controller = new \ReflectionClass($route->getController());
+            $method = $controller->getMethod($route->getActionMethod());
+            $doc = $method->getDocComment();
+            if (!$doc) return null;
+
+            $docBlock = $this->docBlockFactory->create($doc);
+            $tags = $docBlock->getTagsByName('return');
+            if (empty($tags)) return null;
+
+            $imports = (new PhpParser())->parseClass($controller);
+            foreach ($tags as $tag) {
+                /** @var \phpDocumentor\Reflection\DocBlock\Tags\Return_ $tag */
+                $type = $tag->getType();
+                $candidates = [];
+                if ($type instanceof Compound) {
+                    foreach ($type->getTypes() as $t) { $candidates[] = $t; }
+                } else {
+                    $candidates[] = $type;
+                }
+
+                foreach ($candidates as $t) {
+                    if ($t instanceof Object_) {
+                        $fqsen = $t->getFqsen();
+                        $class = ltrim((string) $fqsen, '\\');
+                        if (!class_exists($class)) {
+                            $short = ltrim($fqsen?->getName() ?? '', '\\');
+                            $class = $imports[strtolower($short)] ?? $class;
+                        }
+                        if (class_exists($class)) {
+                            return $class;
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return null;
+    }
+
     /**
      * @param JsonResource $resource
      * @return Model
      * @throws JsonResourceNoType
      * @throws \ReflectionException
      */
-    protected function getResourceArguments(JsonResource $resource): Model
+    protected function getResourceArguments(JsonResource $resource)
     {
-        $model = $this->getResourceModel($resource);
-
-        $this->ensureFactoryTraitPresence($model);
-
-        return tap($this->getResourceModel($resource)::factory()->make(), function ($model) {
-            $this->configureModel($model);
-        });
+        // Return null so resources can be constructed without payload and
+        // documented via documentationAttributes()/toAttributes() fallback.
+        return null;
     }
 
     /**
@@ -224,22 +292,9 @@ class DocParser
      * @return Model|null
      * @throws \ReflectionException
      */
-    protected function getResponseArguments(JsonResponse $response): ?Model
+    protected function getResponseArguments(JsonResponse $response)
     {
-        $model = $this->getResponseModel($response);
-
-        if (empty($model)) {
-            return null;
-        }
-
-        $this->ensureFactoryTraitPresence($model);
-
-        if ($model) {
-            return tap($model::factory()->make(), function ($model) {
-                $this->configureModel($model);
-            });
-        }
-
+        // Avoid resolving DTOs; return null sample
         return null;
     }
 

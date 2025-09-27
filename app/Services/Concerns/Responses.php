@@ -2,31 +2,62 @@
 
 namespace Bchalier\LaravelOpenapiDoc\App\Services\Concerns;
 
+use App\Exceptions\Handler;
+use App\Http\Resources\JsonApiResource;
+use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
+use Illuminate\Http\Response;
 use GoldSpecDigital\ObjectOrientedOAS\Objects\{MediaType as OASMediaType, Response as OASResponse};
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Bchalier\LaravelOpenapiDoc\App\Contracts\DocumentedResource;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\Log;
+use phpDocumentor\Reflection\DocBlock\Tags\Throws;
 use phpDocumentor\Reflection\Types\Object_;
+use ReflectionClass;
+use ReflectionException;
+use Throwable;
 
 trait Responses
 {
     /**
      * @param Route $route
-     * @param bool  $hasBody
+     * @param bool $hasBody
      * @return array
      * @throws ResponseTypeNotSupported
-     * @throws \Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType
-     * @throws \ReflectionException
+     * @throws JsonResourceNoType
+     * @throws ReflectionException
      */
     protected function getResponses(Route $route, $hasBody = true): array
     {
         $responses = [];
 
-        foreach ($this->parser->getResponses($route) as $response) {
-            $responses[] = $this->getResponse($response, $hasBody);
+        try {
+            foreach ($this->parser->getResponses($route) as $response) {
+                try {
+                    $responses[] = $this->getResponse($response, $hasBody);
+                } catch (Throwable $inner) {
+                    Log::warning('[autodoc] response build failed: ' . $inner->getMessage());
+                }
+            }
+            // Also merge phpdoc-declared errors
             $responses = array_merge($this->responsesFromPhpdoc($route), $responses);
+        } catch (Throwable $e) {
+            Log::warning('[autodoc] response inference failed: ' . $e->getMessage());
+        }
+
+        // Fallbacks if nothing was inferred
+        if (empty($responses)) {
+            if ($fallback = $this->fallbackResponseFromController($route, $hasBody)) {
+                $responses[] = $fallback;
+            } else {
+                $responses[] = OASResponse::create()
+                    ->statusCode($hasBody ? 200 : 204)
+                    ->description('Undocumented response');
+            }
         }
 
         return $responses;
@@ -37,14 +68,28 @@ trait Responses
      * @param bool $hasBody
      * @return OASResponse|null
      * @throws ResponseTypeNotSupported
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     protected function getResponse($response, $hasBody = true): ?OASResponse
     {
         if ($response instanceof JsonResource) {
+            if ($response instanceof DocumentedResource) {
+                $schema = $this->schemaForDocumentedResource($response);
+                $summary = $this->getSummary(new ReflectionClass($response), 'toArray');
+                $status = $hasBody ? 200 : 204;
+                $oas = OASResponse::create()->statusCode($status)->description($summary);
+                return $hasBody ? $oas->content(OASMediaType::json()->schema($schema)) : $oas;
+            }
             return $this->responseFromResource($response, $hasBody);
         } elseif ($response instanceof JsonResponse) {
             return $this->responseFromResponse($response, $hasBody);
+        } elseif ($response instanceof Response) {
+            $summary = $this->getSummary(new ReflectionClass($response), '__construct');
+            $oas = OASResponse::create()->statusCode($response->getStatusCode())->description($summary);
+            $content = json_decode($response->getContent(), true);
+            return $hasBody && is_array($content)
+                ? $oas->content(OASMediaType::json()->schema($this->extractFromArray($content)))
+                : $oas;
         } else {
             throw new ResponseTypeNotSupported($response);
         }
@@ -52,35 +97,51 @@ trait Responses
 
     /**
      * @param JsonResource $resource
-     * @param bool         $hasBody
+     * @param bool $hasBody
      * @return OASResponse
      * @throws ResponseTypeNotSupported
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     protected function responseFromResource(JsonResource $resource, $hasBody = true): OASResponse
     {
-        $response = $resource->toResponse(null);
-        $summary = $this->getSummary(new \ReflectionClass($resource), 'toArray');
+        $req = HttpRequest::create('/', 'GET');
+        $req->headers->set('Accept', 'application/vnd.api+json');
+        $summary = $this->getSummary(new ReflectionClass($resource), 'toArray');
 
-        $response = OASResponse::create()
-            ->statusCode($response->getStatusCode())
+        if ($resource instanceof JsonApiResource) {
+            $status = $hasBody ? 200 : 204;
+            $schema = $this->schemaFromResource($resource, true);
+        } else {
+            try {
+                $resp = $resource->toResponse($req);
+                $status = $resp->getStatusCode();
+                $schema = $this->schemaFromResource($resource);
+            } catch (Throwable $e) {
+                // Fallback if rendering fails; still provide schema from attributes only
+                $status = $hasBody ? 200 : 204;
+                $schema = $this->schemaFromResource($resource, true);
+            }
+        }
+
+        $oas = OASResponse::create()
+            ->statusCode($status)
             ->description($summary);
 
-        return $hasBody ? $response->content(
-            OASMediaType::json()->schema($this->schemaFromResource($resource))
-        ) : $response;
+        return $hasBody && $schema ? $oas->content(
+            OASMediaType::json()->schema($schema)
+        ) : $oas;
     }
 
     /**
      * @param JsonResponse $jsonResponse
-     * @param bool         $hasBody
+     * @param bool $hasBody
      * @return OASResponse
      * @throws ResponseTypeNotSupported
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     protected function responseFromResponse(JsonResponse $jsonResponse, $hasBody = true): OASResponse
     {
-        $summary = $this->getSummary(new \ReflectionClass($jsonResponse), '__construct');
+        $summary = $this->getSummary(new ReflectionClass($jsonResponse), '__construct');
 
         $response = OASResponse::create()
             ->statusCode($jsonResponse->getStatusCode())
@@ -95,7 +156,7 @@ trait Responses
      * @param Route $route
      * @return array
      * @throws ResponseTypeNotSupported
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     protected function responsesFromPhpdoc(Route $route): array
     {
@@ -112,7 +173,7 @@ trait Responses
     /**
      * @param Route $route
      * @return array
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     protected function getPhpdocErrorsFromRoute(Route $route): array
     {
@@ -123,7 +184,7 @@ trait Responses
         foreach ($tags as $tag) {
             if ($tag->getName() !== 'throws') continue;
 
-            /** @var $tag \phpDocumentor\Reflection\DocBlock\Tags\Throws */
+            /** @var $tag Throws */
             $type = $tag->getType();
 
             if ($type instanceof Object_) {
@@ -146,18 +207,18 @@ trait Responses
      * @param string $error
      * @return OASResponse
      * @throws ResponseTypeNotSupported
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     protected function responseFromError(string $error): OASResponse
     {
-        $handler = new \App\Exceptions\Handler(app());
+        $handler = new Handler(app());
         $request = new Request();
         $request->headers->set('Accept', 'application/vnd.api+json');
 
         $response = $handler->render($request, new $error);
 
         $content = json_decode($response->getContent(), true);
-        $summary = $this->getSummary(new \ReflectionClass($error), '__construct');
+        $summary = $this->getSummary(new ReflectionClass($error), '__construct');
 
         return OASResponse::create()
             ->statusCode($response->getStatusCode())
@@ -165,5 +226,36 @@ trait Responses
             ->content(
                 OASMediaType::json()->schema($this->extractFromArray($content))
             );
+    }
+
+    /**
+     * Try to fall back to controller return type to build a response
+     */
+    protected function fallbackResponseFromController(Route $route, bool $hasBody): ?OASResponse
+    {
+        try {
+            $returnType = (new ReflectionClass($route->getController()))
+                ->getMethod($route->getActionMethod())
+                ->getReturnType();
+            $class = $returnType?->getName();
+            if (!$class) {
+                // Try parsing docblock as a fallback
+                try {
+                    $docClass = $this->getReturnClassFromDocblock($route);
+                    if (is_string($docClass)) {
+                        $class = $docClass;
+                    }
+                } catch (Throwable) {
+                }
+            }
+            if ($class && class_exists($class) && is_subclass_of($class, JsonResource::class)) {
+                /** @var JsonResource $instance */
+                $instance = new $class(null);
+                return $this->getResponse($instance, $hasBody);
+            }
+        } catch (Throwable $e) {
+            Log::info('[autodoc] fallbackResponseFromController failed: ' . $e->getMessage());
+        }
+        return null;
     }
 }

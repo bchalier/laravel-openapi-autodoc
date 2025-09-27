@@ -5,6 +5,8 @@ namespace Bchalier\LaravelOpenapiDoc\App\Services\Concerns;
 use Bchalier\LaravelOpenapiDoc\App\Contracts\DocumentableRequest;
 use Bchalier\LaravelOpenapiDoc\App\Models\ValidationExtractor;
 use Bchalier\LaravelOpenapiDoc\App\Services\DocParser;
+use GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException;
+use Log;
 use GoldSpecDigital\ObjectOrientedOAS\Objects\{
     MediaType as OASMediaType,
     Parameter as OASParameter,
@@ -12,6 +14,7 @@ use GoldSpecDigital\ObjectOrientedOAS\Objects\{
     Schema as OASSchema,
 };
 use Illuminate\Foundation\Http\FormRequest;
+use Throwable;
 
 trait Request
 {
@@ -20,7 +23,7 @@ trait Request
     /**
      * @param FormRequest|null $request
      * @return OASRequestBody|null
-     * @throws \GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function getRequestBody(?FormRequest $request): ?OASRequestBody
     {
@@ -47,7 +50,7 @@ trait Request
      * @param  FormRequest|null  $request
      *
      * @return array
-     * @throws \GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function getRequestQueryParameters(?FormRequest $request): array
     {
@@ -118,7 +121,12 @@ trait Request
             return $request->bodyRules();
         }
 
-        return $request->rules();
+        try {
+            return $request->rules();
+        } catch (Throwable $e) {
+            Log::notice('Unable to resolve rules() for '.get_class($request).': '.$e->getMessage());
+            return [];
+        }
     }
 
     protected function queryRules(FormRequest $request): array

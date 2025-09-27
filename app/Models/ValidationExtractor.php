@@ -4,8 +4,10 @@ namespace Bchalier\LaravelOpenapiDoc\App\Models;
 
 use Bchalier\LaravelOpenapiDoc\App\Contracts\Parsable;
 use Closure;
+use Faker\Factory;
 use Faker\Generator;
 use Illuminate\Contracts\Validation\Rule as RuleContract;
+use Illuminate\Contracts\Validation\ValidationRule as ModernValidationRule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Translation\Translator;
@@ -55,6 +57,9 @@ class ValidationExtractor
 
     protected array $data = [];
 
+    // For compatibility with Illuminate\Validation\Concerns\FormatsMessages
+    protected array $customAttributes = [];
+
     /**
      * ValidationExtractor constructor.
      *
@@ -62,7 +67,7 @@ class ValidationExtractor
      */
     public function __construct(?string $name)
     {
-        $this->faker = \Faker\Factory::create();
+        $this->faker = Factory::create();
         $this->setName($name);
 
         $this->translator = app('translator');
@@ -112,12 +117,29 @@ class ValidationExtractor
         }
     }
 
-    protected function parseRule(string|array|RuleContract|Closure $ruleRaw): void
+    protected function parseRule($ruleRaw): void
     {
+        // If an array of rules is provided, parse each one
+        if (is_array($ruleRaw)) {
+            foreach ($ruleRaw as $r) {
+                $this->parseRule($r);
+            }
+            return;
+        }
+
+        // Ignore closures (cannot be parsed for documentation)
         if ($ruleRaw instanceof Closure) {
             return;
         }
 
+        // Handle object-based rules before sending anything to ValidationRuleParser
+        if ($ruleRaw instanceof RuleContract || $ruleRaw instanceof ModernValidationRule) {
+            // For object rules there are no string parameters to parse here
+            $this->parseUsingCustomRule($ruleRaw, []);
+            return;
+        }
+
+        // At this point we expect a string rule
         [$rule, $parameters] = ValidationRuleParser::parse($ruleRaw);
 
         if (empty($rule)) {
@@ -126,11 +148,6 @@ class ValidationExtractor
 
         if (is_string($rule) && str_contains($rule, '|')) {
             $this->parseRule(explode('|', $rule));
-            return;
-        }
-
-        if ($rule instanceof RuleContract) {
-            $this->parseUsingCustomRule($rule, $parameters);
             return;
         }
 
@@ -156,7 +173,7 @@ class ValidationExtractor
      * @param RuleContract $rule
      * @param array        $parameters
      */
-    protected function parseUsingCustomRule(RuleContract $rule, array $parameters = []): void
+    protected function parseUsingCustomRule(object $rule, array $parameters = []): void
     {
         if (!$rule instanceof Parsable) {
             Log::notice('The rule ' . get_class($rule) . ' does not implement ' . Parsable::class . ' and will not be documented.');

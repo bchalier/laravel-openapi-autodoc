@@ -13,8 +13,7 @@ use Webmozart\Assert\Assert;
 
 final class DocForceTypeTag extends BaseTag implements StaticMethod
 {
-    /** @var string */
-    protected $name = 'autodoc-type';
+    protected string $name = 'autodoc-type';
 
     /** @var Type */
     private $type;

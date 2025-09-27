@@ -3,11 +3,14 @@
 namespace Bchalier\LaravelOpenapiDoc\App\Services;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\JsonApiResource;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceCollectionNoResource;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Doctrine\Common\Annotations\PhpParser;
+use Domain\Contracts\ApiResource;
+use GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use GoldSpecDigital\ObjectOrientedOAS\Objects\{Info as OASInfo,
@@ -18,17 +21,24 @@ use GoldSpecDigital\ObjectOrientedOAS\Objects\{Info as OASInfo,
     Schema as OASSchema,
     Tag as OASTag};
 use GoldSpecDigital\ObjectOrientedOAS\OpenApi;
+use GoldSpecDigital\ObjectOrientedOAS\Objects\Components as OASComponents;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
-use Modules\Api\App\Exceptions\WrongRelationship;
+use Bchalier\LaravelOpenapiDoc\App\Contracts\DocumentedResource;
+// Removed dependency on application-specific exceptions
 use phpDocumentor\Reflection\DocBlock;
 use phpDocumentor\Reflection\DocBlockFactory;
+use ReflectionClass;
+use ReflectionException;
+use RuntimeException;
+use Throwable;
 
-use function _PHPStan_76800bfb5\RingCentral\Psr7\parse_request;
+// Removed stray function import
 
 class DocGenerator
 {
@@ -40,6 +50,15 @@ class DocGenerator
     protected array $operationsByUri;
     protected array $models;
     protected array $tags = [];
+    protected array $componentSchemas = [];
+    /** @var callable|null */
+    protected $routeFilter = null;
+    /**
+     * Tag groups for vendor extension x-tagGroups
+     * Format: ['ModuleName' => ['TagA','TagB',...]]
+     * @var array<string, array<int, string>>
+     */
+    protected array $tagGroups = [];
 
     /**
      * DocGenerator constructor.
@@ -53,11 +72,22 @@ class DocGenerator
     }
 
     /**
+     * Optionally filter routes to include in this document.
+     * @param callable|null $filter function(Route): bool
+     * @return $this
+     */
+    public function setRouteFilter(?callable $filter): self
+    {
+        $this->routeFilter = $filter;
+        return $this;
+    }
+
+    /**
      * @return OpenApi
      * @throws ResponseTypeNotSupported
-     * @throws \Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType
-     * @throws \ReflectionException
-     * @throws \GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException
+     * @throws JsonResourceNoType
+     * @throws ReflectionException
+     * @throws InvalidArgumentException
      */
     public function generate(): OpenApi
     {
@@ -67,7 +97,9 @@ class DocGenerator
             ->openapi(OpenApi::OPENAPI_3_0_2)
             ->info($this->getInfo())
             ->paths(...$this->getPaths())
-            ->tags(...array_values($this->tags));
+            ->components($this->buildComponents())
+            ->tags(...array_values($this->tags))
+            ->x('x-tagGroups', $this->formatTagGroups());
 
         $this->rollback();
 
@@ -90,17 +122,23 @@ class DocGenerator
     /**
      * @return array
      * @throws ResponseTypeNotSupported
-     * @throws \Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType
-     * @throws \ReflectionException
-     * @throws \GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException
+     * @throws JsonResourceNoType
+     * @throws ReflectionException
+     * @throws InvalidArgumentException
      */
     protected function getPaths(): array
     {
         $paths = [];
 
-        /** @var \Illuminate\Routing\Route $route */
+        /** @var Route $route */
         foreach ($this->parser->getRoutes() as $route) {
+            dump("doing route {$route->uri}");
+
             if ($route->getActionMethod() === 'Closure') {
+                continue;
+            }
+
+            if ($this->routeFilter && !call_user_func($this->routeFilter, $route)) {
                 continue;
             }
 
@@ -110,8 +148,8 @@ class DocGenerator
 
             try {
                 $paths = $this->addPath($paths, $this->getPath($route));
-            } catch (JsonResourceNoFactory | WrongRelationship | ResponseTypeNotSupported | JsonResourceNoType | JsonResourceCollectionNoResource | \ReflectionException $e) {
-                Log::info($e->getMessage());
+            } catch (Throwable $e) {
+                throw $e;
             }
         }
 
@@ -133,25 +171,25 @@ class DocGenerator
      * @param Route $route
      * @return OASPathItem
      * @throws ResponseTypeNotSupported
-     * @throws \Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType
-     * @throws \ReflectionException
-     * @throws \GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException
+     * @throws JsonResourceNoType
+     * @throws ReflectionException
+     * @throws InvalidArgumentException
      */
     protected function getPath(Route $route): OASPathItem
     {
         return OASPathItem::create()
-            ->route('/' . $route->uri)
-            ->operations(...$this->getOperations($route));
-//            ->parameters(...$this->getParameters($route)); // TODO
+            ->route('/' . $route->uri())
+            ->operations(...$this->getOperations($route))
+            ->parameters(...$this->getPathParameters($route));
     }
 
     /**
      * @param Route $route
      * @return array
      * @throws ResponseTypeNotSupported
-     * @throws \Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType
-     * @throws \ReflectionException
-     * @throws \GoldSpecDigital\ObjectOrientedOAS\Exceptions\InvalidArgumentException
+     * @throws JsonResourceNoType
+     * @throws ReflectionException
+     * @throws InvalidArgumentException
      */
     protected function getOperations(Route $route): array
     {
@@ -166,27 +204,44 @@ class DocGenerator
         $summary = $this->getSummary($controllerReflection, $route->getActionMethod());
         $description = $this->getDescription($controllerReflection, $route->getActionMethod());
 
+        $allowed = ['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD'];
         foreach ($route->methods() as $method) {
             if (in_array($method, $ignoredVerbs)) {
                 continue;
             }
+            if (!in_array(strtoupper($method), $allowed, true)) {
+                continue;
+            }
 
             $controller = $route->getController();
-            if ($controller instanceof Controller) {
+            if ($controller) {
                 $request = $this->parser->getRequest($route);
 
-                $operations[] = OASOperation::$method()
+                // Determine tag name and module group for x-tagGroups
+                $rawTag = $this->getNameFromController($controller);
+                $tagName = ucfirst($rawTag);
+                $class = ltrim(get_class($controller), '\\');
+                $module = 'General';
+                if (str_starts_with($class, 'Modules\\')) {
+                    $parts = explode('\\', $class);
+                    if (isset($parts[1]) && $parts[1] !== '') {
+                        $module = $parts[1];
+                    }
+                }
+                $this->addTagToGroup($module, $tagName);
+
+                $operations[] = OASOperation::{strtolower($method)}()
                     ->requestBody($this->getRequestBody($request))
                     ->parameters(...$this->getRequestQueryParameters($request))
                     ->responses(...$this->getResponses($route, $method !== 'HEAD'))
                     ->tags($this->getTag($this->getNameFromController($controller)))
                     ->summary($summary)
                     ->description($description)
-                    ->operationId($route->getName() . ".$method");
+                    ->operationId($this->operationId($route, $method));
             }
         }
 
-        return $this->operationsByUri[$route->uri] = $operations;
+        return $this->operationsByUri[$route->uri()] = $operations;
     }
 
     /**
@@ -195,16 +250,16 @@ class DocGenerator
      */
     protected function getCachedOperations(Route $route): array
     {
-        return $this->operationsByUri[$route->uri] ?? [];
+        return $this->operationsByUri[$route->uri()] ?? [];
     }
 
     /**
-     * @param \ReflectionClass $reflection
+     * @param ReflectionClass $reflection
      * @param                  $method
      * @return string
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
-    protected function getSummary(\ReflectionClass $reflection, $method): string
+    protected function getSummary(ReflectionClass $reflection, $method): string
     {
         $docBlock = $this->getDocBlock($reflection, $method);
 
@@ -212,12 +267,12 @@ class DocGenerator
     }
 
     /**
-     * @param \ReflectionClass $reflection
+     * @param ReflectionClass $reflection
      * @param                  $method
      * @return DocBlock|null
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
-    protected function getDocBlock(\ReflectionClass $reflection, $method): ?DocBlock
+    protected function getDocBlock(ReflectionClass $reflection, $method): ?DocBlock
     {
         $methodReflection = $reflection->getMethod($method);
         $docComment = $methodReflection->getDocComment();
@@ -227,21 +282,21 @@ class DocGenerator
 
     /**
      * @param Route $route
-     * @return \ReflectionClass
-     * @throws \ReflectionException
+     * @return ReflectionClass
+     * @throws ReflectionException
      */
-    protected function getControllerReflection(Route $route): \ReflectionClass
+    protected function getControllerReflection(Route $route): ReflectionClass
     {
-        return new \ReflectionClass($route->getController());
+        return new ReflectionClass($route->getController());
     }
 
     /**
-     * @param \ReflectionClass $reflection
+     * @param ReflectionClass $reflection
      * @param                  $method
      * @return DocBlock\Description|string
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
-    protected function getDescription(\ReflectionClass $reflection, $method): string
+    protected function getDescription(ReflectionClass $reflection, $method): string
     {
         $docBlock = $this->getDocBlock($reflection, $method);
 
@@ -264,11 +319,11 @@ class DocGenerator
     /**
      * @param Controller $controller
      * @return string
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
-    protected function getNameFromController(Controller $controller): string
+    protected function getNameFromController(object $controller): string
     {
-        $shortName = (new \ReflectionClass($controller))->getShortName();
+        $shortName = (new ReflectionClass($controller))->getShortName();
 
         return Str::replaceLast('Controller', '', $shortName);
     }
@@ -290,11 +345,28 @@ class DocGenerator
         return $parameters;
     }
 
+    protected function getPathParameters(Route $route): array
+    {
+        $parameters = [];
+        preg_match_all('/\{([^}]+)\}/', $route->uri(), $matches);
+        foreach ($matches[1] ?? [] as $name) {
+            // Remove optional markers and patterns, e.g. {id?}
+            $clean = rtrim($name, '?');
+            $parameters[] = OASParameter::create($clean)
+                ->in(OASParameter::IN_PATH)
+                ->name($clean)
+                ->required(true)
+                ->description('Path parameter');
+        }
+
+        return $parameters;
+    }
+
     /**
-     * @param \ReflectionClass $class
+     * @param ReflectionClass $class
      * @return array
      */
-    protected function getClassImports(\ReflectionClass $class): array
+    protected function getClassImports(ReflectionClass $class): array
     {
         return (new PhpParser())->parseClass($class);
     }
@@ -304,11 +376,130 @@ class DocGenerator
      * @return OASSchema|null
      * @throws ResponseTypeNotSupported
      */
-    protected function schemaFromResource(JsonResource $resource): ?OASSchema
+    protected function schemaFromResource(JsonResource $resource, bool $attributesOnly = false): ?OASSchema
     {
-        $response = $resource->toResponse(null)->getContent();
+        $req = Request::create('/', 'GET');
+        $req->headers->set('Accept', 'application/vnd.api+json');
+        try {
+            if ($attributesOnly) {
+                throw new RuntimeException('attributes-only');
+            }
+            $response = $resource->toResponse($req)->getContent();
+            return $this->extractFromArray(json_decode($response, true));
+        } catch (Throwable $e) {
+            // Fallback for resources with heavy relationship logic: only document attributes
+            try {
+                $ref = new ReflectionClass($resource);
+                // 0) Explicit doc hook on the Resource itself
+                if ($ref->hasMethod('documentationAttributes')) {
+                    $m = $ref->getMethod('documentationAttributes');
+                    $m->setAccessible(true);
+                    $raw = $m->invoke($resource);
+                    $attributes = $this->normalizeDocAttributes($raw);
+                    $schemas = [];
+                    foreach ($attributes as $k => $v) {
+                        if (is_int($v)) { $schemas[] = OASSchema::integer($k)->example($v); }
+                        elseif (is_float($v)) { $schemas[] = OASSchema::number($k)->example($v); }
+                        elseif (is_bool($v)) { $schemas[] = OASSchema::boolean($k)->example($v); }
+                        else { $schemas[] = OASSchema::string($k)->example((string) $v); }
+                    }
+                    if ($resource instanceof JsonApiResource) {
+                        $dataSchema = OASSchema::object('data')->properties(
+                            OASSchema::string('id')->example('id'),
+                            OASSchema::string('type')->example('type'),
+                            OASSchema::object('attributes')->properties(...$schemas)
+                        );
+                        return OASSchema::object()->properties($dataSchema);
+                    }
 
-        return $this->extractFromArray(json_decode($response, true));
+                    $base = $this->resourceBaseName($resource);
+                    $attributesName = $base . 'Attributes';
+                    $this->registerSchema($attributesName, OASSchema::object($attributesName)->properties(...$schemas));
+                    return OASSchema::ref('#/components/schemas/' . $attributesName);
+
+                }
+                if ($ref->hasMethod('toAttributes')) {
+                    $m = $ref->getMethod('toAttributes');
+                    $m->setAccessible(true);
+                    $attributes = (array) $m->invoke($resource, $req);
+                    $schemas = [];
+                    foreach ($attributes as $k => $v) {
+                        if (is_int($v)) {
+                            $schemas[] = OASSchema::integer($k)->example($v);
+                        } elseif (is_float($v)) {
+                            $schemas[] = OASSchema::number($k)->example($v);
+                        } elseif (is_bool($v)) {
+                            $schemas[] = OASSchema::boolean($k)->example($v);
+                        } else {
+                            $schemas[] = OASSchema::string($k)->example((string) $v);
+                        }
+                    }
+                    if ($resource instanceof JsonApiResource) {
+                        $dataSchema = OASSchema::object('data')->properties(
+                            OASSchema::string('id')->example('id'),
+                            OASSchema::string('type')->example('type'),
+                            OASSchema::object('attributes')->properties(...$schemas)
+                        );
+                        return OASSchema::object()->properties($dataSchema);
+                    }
+
+
+                    $base = $this->resourceBaseName($resource);
+                    $attributesName = $base . 'Attributes';
+                    $this->registerSchema($attributesName, OASSchema::object($attributesName)->properties(...$schemas));
+                    return OASSchema::ref('#/components/schemas/' . $attributesName);
+
+                }
+
+                // As a last resort, inspect the payload object public properties
+                if ($ref->hasProperty('resource')) {
+                    $prop = $ref->getProperty('resource');
+                    $prop->setAccessible(true);
+                    $payload = $prop->getValue($resource);
+                    if (is_object($payload)) {
+                        $schemas = [];
+                        foreach (get_object_vars($payload) as $k => $v) {
+                            if (is_int($v)) {
+                                $schemas[] = OASSchema::integer($k)->example($v);
+                            } elseif (is_float($v)) {
+                                $schemas[] = OASSchema::number($k)->example($v);
+                            } elseif (is_bool($v)) {
+                                $schemas[] = OASSchema::boolean($k)->example($v);
+                            } else {
+                                $schemas[] = OASSchema::string($k)->example((string) $v);
+                            }
+                        }
+
+                        if ($resource instanceof JsonApiResource) {
+                            $dataSchema = OASSchema::object('data')->properties(
+                                OASSchema::string('id')->example('id'),
+                                OASSchema::string('type')->example('type'),
+                                OASSchema::object('attributes')->properties(...$schemas)
+                            );
+                            return OASSchema::object()->properties($dataSchema);
+                        }
+
+
+                    $base = $this->resourceBaseName($resource);
+                    $attributesName = $base . 'Attributes';
+                    $this->registerSchema($attributesName, OASSchema::object($attributesName)->properties(...$schemas));
+                    return OASSchema::ref('#/components/schemas/' . $attributesName);
+
+                    }
+                }
+            } catch (Throwable $_) {
+                // ignore and return null
+            }
+        }
+
+        if ($resource instanceof JsonApiResource) {
+            $dataSchema = OASSchema::object('data')->properties(
+                OASSchema::object('attributes')
+            );
+            return OASSchema::object()->properties($dataSchema);
+        }
+
+        return null;
     }
 
     /**
@@ -350,6 +541,130 @@ class DocGenerator
         }
 
         return $mainSchema->properties(...$schemas);
+    }
+
+    public function schemaForDocumentedResource(JsonResource $resource): OASSchema
+    {
+        $base = $this->resourceBaseName($resource);
+        $attributesName = $base . 'Attributes';
+        $resourceName = $base . 'Resource';
+
+        $attributes = [];
+        if (method_exists($resource, 'documentationAttributes')) {
+            try {
+                $raw = $resource->documentationAttributes();
+                $attributes = $this->normalizeDocAttributes($raw);
+            } catch (Throwable) {
+                $attributes = [];
+            }
+        }
+        $attrSchemas = [];
+        foreach ($attributes as $k => $v) {
+            if (is_int($v)) { $attrSchemas[] = OASSchema::integer($k)->example($v); }
+            elseif (is_float($v)) { $attrSchemas[] = OASSchema::number($k)->example($v); }
+            elseif (is_bool($v)) { $attrSchemas[] = OASSchema::boolean($k)->example($v); }
+            else { $attrSchemas[] = OASSchema::string($k)->example((string) $v); }
+        }
+        $this->registerSchema($attributesName, OASSchema::object($attributesName)->properties(...$attrSchemas));
+
+        $dataProps = [
+            OASSchema::string('id')->example('id'),
+            OASSchema::string('type')->example(Str::camel(Str::plural($base))),
+            OASSchema::ref('#/components/schemas/' . $attributesName)->objectId('attributes'),
+        ];
+
+        if (method_exists($resource, 'documentationRelationships')) {
+            $rels = (array) $resource->documentationRelationships();
+            if (!empty($rels)) {
+                $relationshipProps = [];
+                foreach ($rels as $name => $meta) {
+                    $rel = $this->normalizeRelationshipMeta($meta, (string) $name);
+                    $relSchemaName = $base . 'Relationship' . Str::studly($name);
+                    $targetBase = $rel['resource'] ?? (string) $name;
+                    $typeExample = $rel['type'] ?? Str::camel(Str::plural($targetBase));
+
+                    // Build identifier object with correct type + uuid id
+                    $identifierObject = OASSchema::object('data')->properties(
+                        OASSchema::string('type')->example($typeExample),
+                        OASSchema::string('id')->format(OASSchema::FORMAT_UUID)->example('00000000-0000-0000-0000-000000000000')
+                    );
+
+                    $relDataSchema = (!empty($rel['collection']))
+                        ? OASSchema::array('data')->items(
+                            OASSchema::object()->properties(
+                                OASSchema::string('type')->example($typeExample),
+                                OASSchema::string('id')->format(OASSchema::FORMAT_UUID)->example('00000000-0000-0000-0000-000000000000')
+                            )
+                        )
+                        : $identifierObject;
+
+                    $this->registerSchema($relSchemaName, OASSchema::object($relSchemaName)->properties($relDataSchema));
+                    $relationshipProps[] = OASSchema::ref('#/components/schemas/' . $relSchemaName)->objectId($name);
+                }
+                $dataProps[] = OASSchema::object('relationships')->properties(...$relationshipProps);
+            }
+        }
+
+        $this->registerSchema($resourceName, OASSchema::object($resourceName)->properties(
+            OASSchema::object('data')->properties(...$dataProps)
+        ));
+
+        return OASSchema::ref('#/components/schemas/' . $resourceName);
+    }
+
+    /**
+     * Normalize relationship doc metadata to a simple associative array.
+     * Accepts arrays, stdClass, or DTO-like objects exposing properties or accessors.
+     *
+     * @param mixed $meta
+     * @param string $fallbackName
+     * @return array{resource?: string, collection?: bool}
+     */
+    protected function normalizeRelationshipMeta(mixed $meta, string $fallbackName): array
+    {
+        // Internal: resolve a class-string into ['type' => string] if it implements ApiResource
+        $resolveApiResource = function (?string $class): ?array {
+            if (is_string($class) && class_exists($class) && is_subclass_of($class, ApiResource::class)) {
+                try {
+                    $type = $class::type();
+                    if (is_string($type) && $type !== '') {
+                        return ['type' => $type];
+                    }
+                } catch (Throwable) {}
+            }
+            return null;
+        };
+
+        // Accept an array (e.g., from RelationshipDoc::toArray)
+        if (is_array($meta)) {
+            $out = [];
+            $collection = $meta['collection'] ?? null;
+            $resource = $meta['resource'] ?? null;
+            if ($collection !== null) { $out['collection'] = (bool) $collection; }
+            if (is_string($resource)) {
+                if ($resolved = $resolveApiResource($resource)) {
+                    return array_merge($out, $resolved);
+                }
+            }
+            // Fallback: no valid ApiResource provided
+            return array_merge(['collection' => (bool) ($collection ?? false), 'type' => Str::camel(Str::plural($fallbackName))], $out);
+        }
+
+        // If object with toArray()
+        if (is_object($meta) && method_exists($meta, 'toArray')) {
+            $arr = (array) $meta->toArray();
+            return $this->normalizeRelationshipMeta($arr, $fallbackName);
+        }
+
+        // If meta itself is a class-string
+        if (is_string($meta)) {
+            if ($resolved = $resolveApiResource($meta)) {
+                return array_merge(['collection' => false], $resolved);
+            }
+        }
+
+        // Default fallback: single relationship with inferred type from name
+        return ['collection' => false, 'type' => Str::camel(Str::plural($fallbackName))];
     }
 
     /**
@@ -484,12 +799,24 @@ class DocGenerator
         $whiteList = config('documentation.uriWhiteList');
 
         foreach ($whiteList as $rule) {
-            if (fnmatch($rule, $route->uri)) {
+            if (fnmatch($rule, $route->uri())) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    protected function operationId(Route $route, string $method): string
+    {
+        $name = $route->getName();
+        if (is_string($name) && $name !== '') {
+            return $name . ".$method";
+        }
+
+        $uri = trim($route->uri(), '/');
+        $uri = $uri === '' ? 'root' : str_replace(['/', '{', '}', ':'], ['_', '', '', '_'], $uri);
+        return strtolower($method . '_' . $uri);
     }
 
     private function startTransactions()
@@ -504,5 +831,85 @@ class DocGenerator
         foreach (config('documentation.connections_to_transact') as $connection) {
             DB::connection($connection)->rollBack();
         }
+    }
+
+    protected function registerSchema(string $name, OASSchema $schema): void
+    {
+        $this->componentSchemas[$name] = $schema->objectId($name);
+    }
+
+    protected function buildComponents(): OASComponents
+    {
+        return OASComponents::create()->schemas(...array_values($this->componentSchemas));
+    }
+
+    protected function addTagToGroup(string $group, string $tag): void
+    {
+        if (!isset($this->tagGroups[$group])) {
+            $this->tagGroups[$group] = [];
+        }
+        if (!in_array($tag, $this->tagGroups[$group], true)) {
+            $this->tagGroups[$group][] = $tag;
+        }
+    }
+
+    /**
+     * Format x-tagGroups vendor extension for ReDoc: [{ name, tags: [] }, ...]
+     * @return array<int, array{name: string, tags: array<int,string>}>
+     */
+    protected function formatTagGroups(): array
+    {
+        $groups = [];
+        foreach ($this->tagGroups as $name => $tags) {
+            sort($tags);
+            $groups[] = ['name' => $name, 'tags' => array_values($tags)];
+        }
+        // Ensure stable ordering by group name
+        usort($groups, fn($a, $b) => strcmp($a['name'], $b['name']));
+        return $groups;
+    }
+
+    protected function resourceBaseName(JsonResource $resource): string
+    {
+        $short = (new ReflectionClass($resource))->getShortName();
+        return Str::replaceLast('Resource', '', $short);
+    }
+
+    protected function ensureResourceIdentifierSchema(): void
+    {
+        if (!isset($this->componentSchemas['ResourceIdentifier'])) {
+            $this->registerSchema('ResourceIdentifier', OASSchema::object('ResourceIdentifier')->properties(
+                OASSchema::string('type')->example('resource'),
+                OASSchema::string('id')->example('id')
+            ));
+        }
+    }
+
+    /**
+     * Normalize documentation attributes into an associative array.
+     * Accepts plain arrays or DTO-like objects with toArray() or public properties.
+     *
+     * @param mixed $attrs
+     * @return array<string, mixed>
+     */
+    protected function normalizeDocAttributes(mixed $attrs): array
+    {
+        if (is_array($attrs)) {
+            return $attrs;
+        }
+        if (is_object($attrs)) {
+            try {
+                if (method_exists($attrs, 'toArray')) {
+                    $arr = $attrs->toArray();
+                    if (is_array($arr)) {
+                        return $arr;
+                    }
+                }
+            } catch (Throwable) {}
+            try {
+                return get_object_vars($attrs);
+            } catch (Throwable) {}
+        }
+        return [];
     }
 }

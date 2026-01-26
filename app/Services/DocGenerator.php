@@ -22,6 +22,7 @@ use GoldSpecDigital\ObjectOrientedOAS\Objects\{Info as OASInfo,
     Tag as OASTag};
 use GoldSpecDigital\ObjectOrientedOAS\OpenApi;
 use GoldSpecDigital\ObjectOrientedOAS\Objects\Components as OASComponents;
+use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
@@ -378,6 +379,13 @@ class DocGenerator
      */
     protected function schemaFromResource(JsonResource $resource, bool $attributesOnly = false): ?OASSchema
     {
+        if ($resource instanceof ResourceCollection) {
+            $collectionSchema = $this->schemaFromResourceCollection($resource);
+            if ($collectionSchema) {
+                return $collectionSchema;
+            }
+        }
+
         $req = Request::create('/', 'GET');
         $req->headers->set('Accept', 'application/vnd.api+json');
         try {
@@ -580,8 +588,21 @@ class DocGenerator
     public function schemaForDocumentedResource(JsonResource $resource): OASSchema
     {
         $base = $this->resourceBaseName($resource);
-        $attributesName = $base . 'Attributes';
         $resourceName = $base . 'Resource';
+
+        $dataSchema = $this->jsonApiDataSchemaForDocumentedResource($resource);
+        $this->registerSchema($resourceName, OASSchema::object($resourceName)->properties($dataSchema));
+
+        return OASSchema::ref('#/components/schemas/' . $resourceName);
+    }
+
+    /**
+     * Build the JSON:API data object schema for a documented resource.
+     */
+    protected function jsonApiDataSchemaForDocumentedResource(JsonResource $resource): OASSchema
+    {
+        $base = $this->resourceBaseName($resource);
+        $attributesName = $base . 'Attributes';
 
         $attributes = [];
         if (method_exists($resource, 'documentationAttributes')) {
@@ -592,6 +613,7 @@ class DocGenerator
                 $attributes = [];
             }
         }
+
         $attrSchemas = [];
         foreach ($attributes as $k => $v) {
             $attrSchemas[] = $this->schemaFromValue($k, $v);
@@ -636,11 +658,65 @@ class DocGenerator
             }
         }
 
-        $this->registerSchema($resourceName, OASSchema::object($resourceName)->properties(
-            OASSchema::object('data')->properties(...$dataProps)
-        ));
+        return OASSchema::object('data')->properties(...$dataProps);
+    }
 
-        return OASSchema::ref('#/components/schemas/' . $resourceName);
+    /**
+     * @param ResourceCollection $collection
+     * @return OASSchema|null
+     */
+    protected function schemaFromResourceCollection(ResourceCollection $collection): ?OASSchema
+    {
+        $collects = $this->resolveCollectedResourceClass($collection);
+        if (!$collects || !class_exists($collects)) {
+            return null;
+        }
+
+        try {
+            $resource = new $collects(null);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (!$resource instanceof JsonResource) {
+            return null;
+        }
+
+        if ($resource instanceof DocumentedResource) {
+            $dataSchema = $this->jsonApiDataSchemaForDocumentedResource($resource);
+            return OASSchema::object()->properties(
+                OASSchema::array('data')->items($dataSchema)
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve the JsonResource class collected by a ResourceCollection.
+     */
+    protected function resolveCollectedResourceClass(ResourceCollection $collection): ?string
+    {
+        if (is_string($collection->collects) && $collection->collects !== '') {
+            if (is_subclass_of($collection->collects, JsonResource::class)) {
+                return $collection->collects;
+            }
+            return null;
+        }
+
+        $base = class_basename($collection);
+        if (str_ends_with($base, 'Collection')) {
+            $class = Str::replaceLast('Collection', '', get_class($collection));
+            if (class_exists($class) && is_subclass_of($class, JsonResource::class)) {
+                return $class;
+            }
+            $class = Str::replaceLast('Collection', 'Resource', get_class($collection));
+            if (class_exists($class) && is_subclass_of($class, JsonResource::class)) {
+                return $class;
+            }
+        }
+
+        return null;
     }
 
     /**

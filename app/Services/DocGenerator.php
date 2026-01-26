@@ -505,7 +505,6 @@ class DocGenerator
     /**
      * @param array|null $array
      * @return OASSchema|null
-     * @throws ResponseTypeNotSupported
      */
     protected function extractFromArray(?array $array): ?OASSchema
     {
@@ -513,34 +512,41 @@ class DocGenerator
             return null;
         }
 
-        $mainSchema = new OASSchema();
         $schemas = [];
 
         foreach ($array as $key => $property) {
-            $type = gettype($property);
-
-            switch ($type) {
-                case 'object':
-                    $schema = $this->extractSchemaFromObject($key, $property);
-                    break;
-
-                case 'string':
-                    $schema = $this->extractSchemaFromProperty($key, $property);
-                    break;
-
-                case 'array':
-                    $schema = $this->extractSchemaFromArray($key, $property);
-                    break;
-
-                default:
-                    throw new ResponseTypeNotSupported($property);
-                    break;
-            }
-
-            $schemas[] = $schema;
+            $schemas[] = $this->schemaFromValue($key, $property);
         }
 
-        return $mainSchema->properties(...$schemas);
+        return (new OASSchema())->properties(...$schemas);
+    }
+
+    /**
+     * @param string $key
+     * @param mixed $value
+     * @return OASSchema
+     */
+    protected function schemaFromValue(string $key, mixed $value): OASSchema
+    {
+        if ($value instanceof Collection) {
+            $itemSchema = $this->schemaForArrayItems($value->all());
+            return OASSchema::array($key)->items($itemSchema);
+        }
+
+        if ($value instanceof JsonResource) {
+            return $this->getSchemaFromResource($value)->objectId($key);
+        }
+
+        if (is_array($value)) {
+            return $this->extractSchemaFromArray($key, $value);
+        }
+
+        if (is_object($value)) {
+            return OASSchema::object($key)
+                ->properties(...$this->extractPropertiesFromArray((array) $value));
+        }
+
+        return $this->extractSchemaFromProperty($key, $value);
     }
 
     public function schemaForDocumentedResource(JsonResource $resource): OASSchema
@@ -741,22 +747,7 @@ class DocGenerator
         $schemaList = [];
 
         foreach ($propertiesList as $key => $property) {
-            $property = $property ?? (string) $property;
-
-            $type = $this->extractType($property);
-
-            /** @var OASSchema $schema */
-            $schema = OASSchema::$type($key);
-
-            if ($type === OASSchema::TYPE_ARRAY) {
-                $schema = $schema
-                    ->type(OASSchema::TYPE_OBJECT)
-                    ->properties(...$this->extractPropertiesFromArray($property));
-            } else {
-                $schema = $schema->example($property);
-            }
-
-            $schemaList[] = $schema;
+            $schemaList[] = $this->schemaFromValue($key, $property);
         }
 
         return $schemaList;
@@ -764,9 +755,13 @@ class DocGenerator
 
     protected function extractType($value): string
     {
-        return match ($type = gettype($value)) {
-            'double' => 'integer',
-            default => $type,
+        return match (gettype($value)) {
+            'double' => OASSchema::TYPE_NUMBER,
+            'integer' => OASSchema::TYPE_INTEGER,
+            'boolean' => OASSchema::TYPE_BOOLEAN,
+            'array' => OASSchema::TYPE_ARRAY,
+            'object' => OASSchema::TYPE_OBJECT,
+            default => OASSchema::TYPE_STRING,
         };
     }
 
@@ -777,10 +772,15 @@ class DocGenerator
      */
     protected function extractSchemaFromProperty($key, $property): OASSchema
     {
-        $type = gettype($property);
+        $type = $this->extractType($property);
 
-        return OASSchema::$type($key)
-            ->example($property);
+        $schema = OASSchema::$type($key);
+
+        if ($property === null) {
+            return $schema->nullable(true)->example(null);
+        }
+
+        return $schema->example($property);
     }
 
     /**
@@ -790,8 +790,29 @@ class DocGenerator
      */
     protected function extractSchemaFromArray($key, $property): OASSchema
     {
-        return OASSchema::object($key)
-            ->properties(...$this->extractPropertiesFromArray($property));
+        if (Arr::isAssoc($property)) {
+            return OASSchema::object($key)
+                ->properties(...$this->extractPropertiesFromArray($property));
+        }
+
+        $itemSchema = $this->schemaForArrayItems($property);
+
+        return OASSchema::array($key)->items($itemSchema);
+    }
+
+    /**
+     * @param array $items
+     * @return OASSchema
+     */
+    protected function schemaForArrayItems(array $items): OASSchema
+    {
+        foreach ($items as $item) {
+            if ($item !== null) {
+                return $this->schemaFromValue('item', $item);
+            }
+        }
+
+        return OASSchema::object('item');
     }
 
     protected function inWhiteList(Route $route): bool

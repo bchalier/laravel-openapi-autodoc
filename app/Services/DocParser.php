@@ -5,7 +5,6 @@ namespace Bchalier\LaravelOpenapiDoc\App\Services;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceCollectionNoResource;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoFactory;
 use Bchalier\LaravelOpenapiDoc\App\Exceptions\JsonResourceNoType;
-use Bchalier\LaravelOpenapiDoc\App\Exceptions\ResponseTypeNotSupported;
 use Bchalier\LaravelOpenapiDoc\App\Tags\DocForceTypeTag;
 use Doctrine\Common\Annotations\PhpParser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -57,7 +56,6 @@ class DocParser
      * @param Route $route
      * @return array
      * @throws JsonResourceNoType
-     * @throws ResponseTypeNotSupported
      * @throws \ReflectionException
      */
     public function getResponses(Route $route): array
@@ -76,48 +74,74 @@ class DocParser
      *
      * @param Route $route
      * @return object
-     * @throws JsonResourceNoType
-     * @throws ResponseTypeNotSupported
      * @throws \ReflectionException
      */
     protected function getDefaultResponse(Route $route): ?object
     {
-        $returnType = $this->getReturnType($route);
-        $responseClassName = $returnType?->getName() ?? $this->getReturnClassFromDocblock($route);
+        $candidates = $this->getReturnTypeCandidates($route);
 
-        if (!class_exists($responseClassName)) {
-            return null;
+        foreach ($candidates as $responseClassName) {
+            if ($response = $this->buildResponseFromClass($responseClassName)) {
+                return $response;
+            }
         }
 
-        $responseClassReflection = new \ReflectionClass($responseClassName);
-        $responseClassInstance = $responseClassReflection->newInstanceWithoutConstructor();
-
-        if ($responseClassInstance instanceof ResourceCollection) {
-            $responseClass = new $responseClassName($this->getResourceCollectionArguments($responseClassInstance));
-        } elseif ($responseClassInstance instanceof JsonResource) {
-            $responseClass = new $responseClassName($this->getResourceArguments($responseClassInstance));
-        } elseif ($responseClassInstance instanceof JsonResponse) {
-            $responseClass = new $responseClassName($this->getResponseArguments($responseClassInstance));
-        } elseif ($responseClassInstance instanceof RedirectResponse) {
-            $responseClass = new JsonResponse(null, 302);
-        } else {
-            throw new ResponseTypeNotSupported($responseClassName);
-        }
-
-        return $responseClass;
+        return null;
     }
 
     /**
      * @param Route $route
-     * @return \ReflectionNamedType|null
+     * @return \ReflectionType|null
      * @throws \ReflectionException
      */
-    protected function getReturnType(Route $route): ?\ReflectionNamedType
+    protected function getReturnType(Route $route): ?\ReflectionType
     {
         $controller = new \ReflectionClass($route->getController());
         $method = $controller->getMethod($route->getActionMethod());
 
         return $method->getReturnType();
+    }
+
+    /**
+     * @param Route $route
+     * @return array<int, string>
+     */
+    public function getReturnTypeCandidates(Route $route): array
+    {
+        $classes = array_merge(
+            $this->extractReturnTypeClasses($this->getReturnType($route)),
+            $this->getReturnClassesFromDocblock($route)
+        );
+
+        return array_values(array_unique($classes));
+    }
+
+    /**
+     * @param \ReflectionType|null $type
+     * @return array<int, string>
+     */
+    protected function extractReturnTypeClasses(?\ReflectionType $type): array
+    {
+        if (!$type) {
+            return [];
+        }
+
+        $types = $type instanceof \ReflectionUnionType || $type instanceof \ReflectionIntersectionType
+            ? $type->getTypes()
+            : [$type];
+
+        $classes = [];
+        foreach ($types as $namedType) {
+            if (!$namedType instanceof \ReflectionNamedType) {
+                continue;
+            }
+            if ($namedType->isBuiltin()) {
+                continue;
+            }
+            $classes[] = $namedType->getName();
+        }
+
+        return $classes;
     }
 
     /**
@@ -230,19 +254,24 @@ class DocParser
         return null;
     }
 
-    protected function getReturnClassFromDocblock(Route $route): ?string
+    /**
+     * @param Route $route
+     * @return array<int, string>
+     */
+    protected function getReturnClassesFromDocblock(Route $route): array
     {
         try {
             $controller = new \ReflectionClass($route->getController());
             $method = $controller->getMethod($route->getActionMethod());
             $doc = $method->getDocComment();
-            if (!$doc) return null;
+            if (!$doc) return [];
 
             $docBlock = $this->docBlockFactory->create($doc);
             $tags = $docBlock->getTagsByName('return');
-            if (empty($tags)) return null;
+            if (empty($tags)) return [];
 
             $imports = (new PhpParser())->parseClass($controller);
+            $classes = [];
             foreach ($tags as $tag) {
                 /** @var \phpDocumentor\Reflection\DocBlock\Tags\Return_ $tag */
                 $type = $tag->getType();
@@ -262,10 +291,47 @@ class DocParser
                             $class = $imports[strtolower($short)] ?? $class;
                         }
                         if (class_exists($class)) {
-                            return $class;
+                            $classes[] = $class;
                         }
                     }
                 }
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_values(array_unique($classes ?? []));
+    }
+
+    /**
+     * @param string $responseClassName
+     * @return object|null
+     */
+    protected function buildResponseFromClass(string $responseClassName): ?object
+    {
+        if (!class_exists($responseClassName)) {
+            return null;
+        }
+
+        try {
+            $responseClassReflection = new \ReflectionClass($responseClassName);
+            $responseClassInstance = $responseClassReflection->newInstanceWithoutConstructor();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        try {
+            if ($responseClassInstance instanceof ResourceCollection) {
+                return new $responseClassName($this->getResourceCollectionArguments($responseClassInstance));
+            }
+            if ($responseClassInstance instanceof JsonResource) {
+                return new $responseClassName($this->getResourceArguments($responseClassInstance));
+            }
+            if ($responseClassInstance instanceof JsonResponse) {
+                return new $responseClassName($this->getResponseArguments($responseClassInstance));
+            }
+            if ($responseClassInstance instanceof RedirectResponse) {
+                return new JsonResponse(null, 302);
             }
         } catch (\Throwable) {
             return null;

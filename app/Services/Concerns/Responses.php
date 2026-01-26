@@ -234,21 +234,11 @@ trait Responses
     protected function fallbackResponseFromController(Route $route, bool $hasBody): ?OASResponse
     {
         try {
-            $returnType = (new ReflectionClass($route->getController()))
-                ->getMethod($route->getActionMethod())
-                ->getReturnType();
-            $class = $returnType?->getName();
-            if (!$class) {
-                // Try parsing docblock as a fallback
-                try {
-                    $docClass = $this->getReturnClassFromDocblock($route);
-                    if (is_string($docClass)) {
-                        $class = $docClass;
-                    }
-                } catch (Throwable) {
+            $classes = $this->parser->getReturnTypeCandidates($route);
+            foreach ($classes as $class) {
+                if (!class_exists($class) || !is_subclass_of($class, JsonResource::class)) {
+                    continue;
                 }
-            }
-            if ($class && class_exists($class) && is_subclass_of($class, JsonResource::class)) {
                 /** @var JsonResource $instance */
                 $instance = new $class(null);
                 return $this->getResponse($instance, $hasBody);

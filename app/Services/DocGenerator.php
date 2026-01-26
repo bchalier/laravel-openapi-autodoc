@@ -1050,6 +1050,8 @@ class DocGenerator
      */
     protected function documentedAttributesToArray(JsonResource $resource, mixed $raw): array
     {
+        $rawAttributes = $this->normalizeDocAttributes($raw);
+
         try {
             $ref = new ReflectionClass($resource);
             if ($ref->hasMethod('toAttributes')) {
@@ -1062,9 +1064,71 @@ class DocGenerator
                     return $attributes;
                 }
             }
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            if (isset($method) && $method instanceof \ReflectionMethod) {
+                $keys = $this->extractAttributeKeysFromMethod($method);
+                if (!empty($keys)) {
+                    return $this->mapAttributeKeysToRaw($keys, $rawAttributes);
+                }
+            }
         }
 
-        return $this->normalizeDocAttributes($raw);
+        return $rawAttributes;
+    }
+
+    /**
+     * @param \ReflectionMethod $method
+     * @return array<int, string>
+     */
+    protected function extractAttributeKeysFromMethod(\ReflectionMethod $method): array
+    {
+        $file = $method->getFileName();
+        if (!is_string($file) || $file === '') {
+            return [];
+        }
+
+        $start = $method->getStartLine();
+        $end = $method->getEndLine();
+        if ($start <= 0 || $end <= 0 || $end < $start) {
+            return [];
+        }
+
+        $lines = @file($file, FILE_IGNORE_NEW_LINES);
+        if (!is_array($lines)) {
+            return [];
+        }
+
+        $slice = array_slice($lines, $start - 1, $end - $start + 1);
+        $source = implode("\n", $slice);
+
+        if (!preg_match_all('/[\'"]([^\'"]+)[\'"]\s*=>/', $source, $matches)) {
+            return [];
+        }
+
+        return array_values(array_unique($matches[1]));
+    }
+
+    /**
+     * @param array<int, string> $keys
+     * @param array<string, mixed> $rawAttributes
+     * @return array<string, mixed>
+     */
+    protected function mapAttributeKeysToRaw(array $keys, array $rawAttributes): array
+    {
+        $mapped = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $rawAttributes)) {
+                $mapped[$key] = $rawAttributes[$key];
+                continue;
+            }
+            $camel = Str::camel($key);
+            if (array_key_exists($camel, $rawAttributes)) {
+                $mapped[$key] = $rawAttributes[$camel];
+                continue;
+            }
+            $mapped[$key] = null;
+        }
+
+        return $mapped;
     }
 }

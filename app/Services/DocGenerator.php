@@ -398,10 +398,7 @@ class DocGenerator
                     $attributes = $this->normalizeDocAttributes($raw);
                     $schemas = [];
                     foreach ($attributes as $k => $v) {
-                        if (is_int($v)) { $schemas[] = OASSchema::integer($k)->example($v); }
-                        elseif (is_float($v)) { $schemas[] = OASSchema::number($k)->example($v); }
-                        elseif (is_bool($v)) { $schemas[] = OASSchema::boolean($k)->example($v); }
-                        else { $schemas[] = OASSchema::string($k)->example((string) $v); }
+                        $schemas[] = $this->schemaFromValue($k, $v);
                     }
                     if ($resource instanceof JsonApiResource) {
                         $dataSchema = OASSchema::object('data')->properties(
@@ -424,15 +421,7 @@ class DocGenerator
                     $attributes = (array) $m->invoke($resource, $req);
                     $schemas = [];
                     foreach ($attributes as $k => $v) {
-                        if (is_int($v)) {
-                            $schemas[] = OASSchema::integer($k)->example($v);
-                        } elseif (is_float($v)) {
-                            $schemas[] = OASSchema::number($k)->example($v);
-                        } elseif (is_bool($v)) {
-                            $schemas[] = OASSchema::boolean($k)->example($v);
-                        } else {
-                            $schemas[] = OASSchema::string($k)->example((string) $v);
-                        }
+                        $schemas[] = $this->schemaFromValue($k, $v);
                     }
                     if ($resource instanceof JsonApiResource) {
                         $dataSchema = OASSchema::object('data')->properties(
@@ -459,15 +448,7 @@ class DocGenerator
                     if (is_object($payload)) {
                         $schemas = [];
                         foreach (get_object_vars($payload) as $k => $v) {
-                            if (is_int($v)) {
-                                $schemas[] = OASSchema::integer($k)->example($v);
-                            } elseif (is_float($v)) {
-                                $schemas[] = OASSchema::number($k)->example($v);
-                            } elseif (is_bool($v)) {
-                                $schemas[] = OASSchema::boolean($k)->example($v);
-                            } else {
-                                $schemas[] = OASSchema::string($k)->example((string) $v);
-                            }
+                            $schemas[] = $this->schemaFromValue($k, $v);
                         }
 
                         if ($resource instanceof JsonApiResource) {
@@ -528,6 +509,11 @@ class DocGenerator
      */
     protected function schemaFromValue(string $key, mixed $value): OASSchema
     {
+        $normalized = $this->normalizeSchemaValue($value);
+        if ($normalized !== $value) {
+            return $this->schemaFromValue($key, $normalized);
+        }
+
         if ($value instanceof Collection) {
             $itemSchema = $this->schemaForArrayItems($value->all());
             return OASSchema::array($key)->items($itemSchema);
@@ -542,11 +528,53 @@ class DocGenerator
         }
 
         if (is_object($value)) {
-            return OASSchema::object($key)
-                ->properties(...$this->extractPropertiesFromArray((array) $value));
+            $properties = $this->extractPropertiesFromArray(get_object_vars($value));
+            return OASSchema::object($key)->properties(...$properties);
         }
 
         return $this->extractSchemaFromProperty($key, $value);
+    }
+
+    /**
+     * @param mixed $value
+     * @return mixed
+     */
+    protected function normalizeSchemaValue(mixed $value): mixed
+    {
+        if (!is_object($value)) {
+            return $value;
+        }
+
+        if ($value instanceof \JsonSerializable) {
+            try {
+                $serialized = $value->jsonSerialize();
+                if (is_array($serialized) || is_scalar($serialized) || $serialized === null) {
+                    return $serialized;
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        if (method_exists($value, 'toArray')) {
+            try {
+                $array = $value->toArray();
+                if (is_array($array)) {
+                    return $array;
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        if ($value instanceof \Stringable) {
+            return (string) $value;
+        }
+
+        $props = get_object_vars($value);
+        if (!empty($props)) {
+            return $props;
+        }
+
+        return $value;
     }
 
     public function schemaForDocumentedResource(JsonResource $resource): OASSchema
@@ -566,10 +594,7 @@ class DocGenerator
         }
         $attrSchemas = [];
         foreach ($attributes as $k => $v) {
-            if (is_int($v)) { $attrSchemas[] = OASSchema::integer($k)->example($v); }
-            elseif (is_float($v)) { $attrSchemas[] = OASSchema::number($k)->example($v); }
-            elseif (is_bool($v)) { $attrSchemas[] = OASSchema::boolean($k)->example($v); }
-            else { $attrSchemas[] = OASSchema::string($k)->example((string) $v); }
+            $attrSchemas[] = $this->schemaFromValue($k, $v);
         }
         $this->registerSchema($attributesName, OASSchema::object($attributesName)->properties(...$attrSchemas));
 

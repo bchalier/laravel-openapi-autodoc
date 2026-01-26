@@ -24,6 +24,9 @@
     "phpdocumentor/reflection-docblock": "^5.1",
     "doctrine/annotations": "^2.0.1"
   },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5"
+  },
   "autoload": {
     "files": [
       "app/helpers.php"

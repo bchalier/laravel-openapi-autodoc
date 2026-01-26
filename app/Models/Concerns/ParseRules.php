@@ -20,7 +20,7 @@ trait ParseRules
     protected string $startsWith;
     protected string $endsWith;
     protected array $fileExtension;
-    protected mixed $example;
+    protected mixed $example = null;
 
     /**
      * Parse an "accepted".

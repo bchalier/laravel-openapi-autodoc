@@ -151,12 +151,15 @@ class ValidationExtractor
             return;
         }
 
-        $this->messages[] = $this->makeReplacements(
-            $this->messageFromRule($rule),
-            $this->getName(),
-            $rule,
-            $parameters
-        );
+        $message = $this->messageFromRule($rule);
+        if ($message !== null) {
+            $this->messages[] = $this->makeReplacements(
+                $message,
+                $this->getName(),
+                $rule,
+                $parameters
+            );
+        }
 
         $method = "parse{$rule}";
 

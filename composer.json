@@ -25,6 +25,7 @@
     "doctrine/annotations": "^2.0.1"
   },
   "require-dev": {
+    "fakerphp/faker": "^1.24",
     "phpunit/phpunit": "^10.5"
   },
   "autoload": {

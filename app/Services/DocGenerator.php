@@ -553,6 +553,14 @@ class DocGenerator
             return $value;
         }
 
+        if ($value instanceof \BackedEnum) {
+            return $value->value;
+        }
+
+        if ($value instanceof \UnitEnum) {
+            return $value->name;
+        }
+
         if ($value instanceof \JsonSerializable) {
             try {
                 $serialized = $value->jsonSerialize();

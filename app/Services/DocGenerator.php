@@ -403,7 +403,7 @@ class DocGenerator
                     $m = $ref->getMethod('documentationAttributes');
                     $m->setAccessible(true);
                     $raw = $m->invoke($resource);
-                    $attributes = $this->normalizeDocAttributes($raw);
+                    $attributes = $this->documentedAttributesToArray($resource, $raw);
                     $schemas = [];
                     foreach ($attributes as $k => $v) {
                         $schemas[] = $this->schemaFromValue($k, $v);
@@ -608,7 +608,7 @@ class DocGenerator
         if (method_exists($resource, 'documentationAttributes')) {
             try {
                 $raw = $resource->documentationAttributes();
-                $attributes = $this->normalizeDocAttributes($raw);
+                $attributes = $this->documentedAttributesToArray($resource, $raw);
             } catch (Throwable) {
                 $attributes = [];
             }
@@ -1033,5 +1033,30 @@ class DocGenerator
             } catch (Throwable) {}
         }
         return [];
+    }
+
+    /**
+     * @param JsonResource $resource
+     * @param mixed $raw
+     * @return array<string, mixed>
+     */
+    protected function documentedAttributesToArray(JsonResource $resource, mixed $raw): array
+    {
+        try {
+            $ref = new ReflectionClass($resource);
+            if ($ref->hasMethod('toAttributes')) {
+                $method = $ref->getMethod('toAttributes');
+                $method->setAccessible(true);
+                $clone = clone $resource;
+                $clone->resource = $raw;
+                $attributes = $method->invoke($clone, Request::create('/', 'GET'));
+                if (is_array($attributes)) {
+                    return $attributes;
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        return $this->normalizeDocAttributes($raw);
     }
 }

@@ -641,19 +641,17 @@ class DocGenerator
                 foreach ($rels as $name => $meta) {
                     $rel = $this->normalizeRelationshipMeta($meta, (string) $name);
                     $relSchemaName = $base . 'Relationship' . Str::studly($name);
-                    $targetBase = $rel['resource'] ?? (string) $name;
-                    $typeExample = $rel['type'] ?? Str::camel(Str::plural($targetBase));
 
                     // Build identifier object with correct type + uuid id
                     $identifierObject = OASSchema::object('data')->properties(
-                        OASSchema::string('type')->example($typeExample),
+                        $this->relationshipTypeSchema($rel['types']),
                         OASSchema::string('id')->format(OASSchema::FORMAT_UUID)->example('00000000-0000-0000-0000-000000000000')
                     );
 
                     $relDataSchema = (!empty($rel['collection']))
                         ? OASSchema::array('data')->items(
                             OASSchema::object()->properties(
-                                OASSchema::string('type')->example($typeExample),
+                                $this->relationshipTypeSchema($rel['types']),
                                 OASSchema::string('id')->format(OASSchema::FORMAT_UUID)->example('00000000-0000-0000-0000-000000000000')
                             )
                         )
@@ -728,41 +726,49 @@ class DocGenerator
     }
 
     /**
+     * The type of a relationship's resource identifiers: a linkage that may point to several types lists them all.
+     *
+     * @param non-empty-list<string> $types
+     * @return OASSchema
+     */
+    protected function relationshipTypeSchema(array $types): OASSchema
+    {
+        $schema = OASSchema::string('type')->example($types[0]);
+
+        return count($types) > 1 ? $schema->enum(...$types) : $schema;
+    }
+
+    /**
      * Normalize relationship doc metadata to a simple associative array.
      * Accepts arrays, stdClass, or DTO-like objects exposing properties or accessors.
      *
      * @param mixed $meta
      * @param string $fallbackName
-     * @return array{resource?: string, collection?: bool}
+     * @return array{collection: bool, types: non-empty-list<string>}
      */
     protected function normalizeRelationshipMeta(mixed $meta, string $fallbackName): array
     {
-        // Internal: resolve a class-string into ['type' => string] if it implements ApiResource
-        $resolveApiResource = function (?string $class): ?array {
+        // Internal: resolve a class-string into its type if it implements ApiResource
+        $resolveApiResource = function (mixed $class): ?string {
             if (is_string($class) && class_exists($class) && is_subclass_of($class, ApiResource::class)) {
                 try {
                     $type = $class::type();
                     if (is_string($type) && $type !== '') {
-                        return ['type' => $type];
+                        return $type;
                     }
                 } catch (Throwable) {}
             }
             return null;
         };
+        $fallbackTypes = [Str::camel(Str::plural($fallbackName))];
 
-        // Accept an array (e.g., from RelationshipDoc::toArray)
+        // Accept an array (e.g., from RelationshipDoc::toArray), naming its resources or a single resource
         if (is_array($meta)) {
-            $out = [];
-            $collection = $meta['collection'] ?? null;
-            $resource = $meta['resource'] ?? null;
-            if ($collection !== null) { $out['collection'] = (bool) $collection; }
-            if (is_string($resource)) {
-                if ($resolved = $resolveApiResource($resource)) {
-                    return array_merge($out, $resolved);
-                }
-            }
+            $resources = $meta['resources'] ?? [$meta['resource'] ?? null];
+            $types = array_values(array_unique(array_filter(array_map($resolveApiResource, (array) $resources))));
+
             // Fallback: no valid ApiResource provided
-            return array_merge(['collection' => (bool) ($collection ?? false), 'type' => Str::camel(Str::plural($fallbackName))], $out);
+            return ['collection' => (bool) ($meta['collection'] ?? false), 'types' => $types ?: $fallbackTypes];
         }
 
         // If object with toArray()
@@ -773,13 +779,13 @@ class DocGenerator
 
         // If meta itself is a class-string
         if (is_string($meta)) {
-            if ($resolved = $resolveApiResource($meta)) {
-                return array_merge(['collection' => false], $resolved);
+            if ($type = $resolveApiResource($meta)) {
+                return ['collection' => false, 'types' => [$type]];
             }
         }
 
         // Default fallback: single relationship with inferred type from name
-        return ['collection' => false, 'type' => Str::camel(Str::plural($fallbackName))];
+        return ['collection' => false, 'types' => $fallbackTypes];
     }
 
     /**

@@ -19,8 +19,9 @@ interface DocumentedResource
 
     /**
      * Describe relationships for documentation: name => RelationshipDoc
-     * - resource: class-string of a Domain\\Contracts\\ApiResource (DTO) implementing static type().
-     *             The generator will use that type() value for JSON:API type examples.
+     * - resources: class-strings of Domain\\Contracts\\ApiResource (DTOs) implementing static type().
+     *              The generator will use those type() values for JSON:API types; a linkage that may point to
+     *              resources of several types lists each of them.
      * - collection: true for to-many, false for to-one.
      *
      * @return array<string, RelationshipDoc>

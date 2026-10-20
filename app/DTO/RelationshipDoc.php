@@ -4,40 +4,44 @@ namespace Bchalier\LaravelOpenapiDoc\App\DTO;
 
 /**
  * Lightweight DTO to describe a relationship for documentation purposes.
- * - resource: class-string of a Domain\\Contracts\\ApiResource. The generator will use its static type().
+ * - resources: class-strings of Domain\\Contracts\\ApiResource. The generator will use their static type(). A linkage
+ *   that may point to resources of several types lists each of them.
  * - collection: true for to-many, false for to-one.
  */
 class RelationshipDoc
 {
+    /**
+     * @param list<class-string<\\Domain\\Contracts\\ApiResource>> $resources
+     */
     public function __construct(
-        public ?string $resource = null,
+        public array $resources = [],
         public bool $collection = false,
     ) {}
 
     /**
      * Describe a to-many relationship.
      */
-    public static function many(?string $resource = null): self
+    public static function many(string ...$resources): self
     {
-        return new self($resource, true);
+        return new self(array_values($resources), true);
     }
 
     /**
      * Describe a to-one relationship.
      */
-    public static function one(?string $resource = null): self
+    public static function one(string ...$resources): self
     {
-        return new self($resource, false);
+        return new self(array_values($resources), false);
     }
 
     /**
      * Allow downstream code to normalize easily.
-     * @return array{resource: (class-string<\\Domain\\Contracts\\ApiResource>)|null, collection: bool}
+     * @return array{resources: list<class-string<\\Domain\\Contracts\\ApiResource>>, collection: bool}
      */
     public function toArray(): array
     {
         return [
-            'resource' => $this->resource,
+            'resources' => $this->resources,
             'collection' => $this->collection,
         ];
     }
